@@ -1,0 +1,10 @@
+# Documentation, investigations and plans stay local
+docs/
+
+# Generated records, summaries and test output
+data/
+private-local/
+dist/
+
+__pycache__/
+*.pyc
