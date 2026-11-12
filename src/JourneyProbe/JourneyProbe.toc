@@ -1,0 +1,9 @@
+## Interface: 16001
+## Title: JourneyProbe
+## Notes: Throwaway Phase 0 probe for JourneyMaster. Records what Forever lets an add-on see; it changes nothing in the game. Delete it after the checks.
+## Author: Shane Hou
+## Category: Utility
+## Version: 0.1.0
+## SavedVariables: JourneyProbeDB
+
+JourneyProbe.lua
