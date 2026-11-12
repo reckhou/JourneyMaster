@@ -482,8 +482,11 @@ function P.Start()
     for _, e in ipairs(P.GAME_EVENTS) do
         P.registered[e] = pcall(frame.RegisterEvent, frame, e)
     end
-    -- The combat log is registered separately: the plan's open question is whether it fires for add-ons at all.
-    P.registered.COMBAT_LOG_EVENT_UNFILTERED = pcall(frame.RegisterEvent, frame, "COMBAT_LOG_EVENT_UNFILTERED")
+    -- The combat log is not registered. Forever marks COMBAT_LOG_EVENT_UNFILTERED "HasRestrictions" in its API
+    -- documentation, and RegisterEvent on it from add-on code raises the "blocked from an action only available to the
+    -- Blizzard UI" popup (seen in game on 12 November 2026). pcall does not stop that popup. This answers the plan's open
+    -- question: the combat log does not reach add-ons, so onCleu below stays unused and deaths carry no lastHit.
+    P.registered.COMBAT_LOG_EVENT_UNFILTERED = "blocked (restricted event, add-on action forbidden)"
     frame:RegisterEvent("ADDON_LOADED")
     frame:SetScript("OnEvent", function(self, event, ...)
         if event == "ADDON_LOADED" then
