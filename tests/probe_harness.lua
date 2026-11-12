@@ -76,6 +76,21 @@ inInstance, instType = true, "party"
 P.OnEvent(nil, "PLAYER_ENTERING_WORLD", false, false)
 check(JourneyProbeDB.log[#JourneyProbeDB.log].changed == true, "entering an instance is marked as a change")
 
+-- Check list: every check has a line, and the counts reflect what was recorded above
+local progress = P.CheckProgress(JourneyProbeDB)
+for _, c in ipairs(P.CHECKS) do check(type(progress[c.n]) == "string", "progress line for check " .. c.n) end
+check(#P.CHECKS == 10, "ten checks listed")
+check(progress[6] == "1 lines in the open world, 41 in instances", "player chat split by place: " .. progress[6])
+check(progress[2] == "1 quest windows opened", "quest count: " .. progress[2])
+check(progress[3] == "1 deaths, 1 boss kills", "death and boss count: " .. progress[3])
+check(progress[7] == "1 dungeon entries", "dungeon entry count: " .. progress[7])
+check(progress[1] == "2 logins recorded", "login count: " .. progress[1])
+local lines = {}
+DEFAULT_CHAT_FRAME = { AddMessage = function(_, s) lines[#lines + 1] = s end }
+P.Slash("list")
+DEFAULT_CHAT_FRAME = nil
+check(#lines == 12, "/jmp list prints a heading, ten checks and a footer")
+
 -- Cap
 JourneyProbeDB.log = {}
 for i = 1, 30001 do P.Record("mark", { note = "x" }) end

@@ -7,7 +7,7 @@
 -- Abbreviations: SV = SavedVariables. NPC = non-player character. CLEU = COMBAT_LOG_EVENT_UNFILTERED, the combat log
 -- event. API = application programming interface. GUID = globally unique identifier of a game object.
 --
--- Commands: /jmp (status), /jmp mark <text>, /jmp api, /jmp fill <n>, /jmp reset.
+-- Commands: /jmp (status), /jmp list (the checks still to run), /jmp mark <text>, /jmp api, /jmp fill <n>, /jmp reset.
 
 JourneyProbe = JourneyProbe or {}
 local P = JourneyProbe
@@ -418,7 +418,81 @@ function P.CreateMinimapButton()
 end
 
 -- ---------------------------------------------------------------------------------------------------------------------
+-- The checks, in priority order (docs/investigations/phase0-probe-checklist.md), and what has been seen for each
+
+P.CHECKS = {
+    { n = 6, name = "Player chat readable", todo = "Say, yell, /e and party chat in the open world; then party chat in a dungeon" },
+    { n = 2, name = "Quest text and giver", todo = "Open and accept two quests from NPCs" },
+    { n = 3, name = "Death and boss kill", todo = "Die once (fall damage will do); kill one dungeon boss" },
+    { n = 7, name = "Dungeon entry and exit", todo = "Enter and leave a dungeon, then log out fully" },
+    { n = 4, name = "NPC speech", todo = "Stand near a speaking NPC in the open world; hear a boss yell in a dungeon" },
+    { n = 1, name = "Saved data read back", todo = "Log out fully and log in once" },
+    { n = 10, name = "Minimap button", todo = "Drag the probe's minimap button, then /reload" },
+    { n = 5, name = "Saved data size", todo = "/jmp fill 50000, then /reload and time the pause" },
+    { n = 8, name = "Chat log and raids", todo = "Enter a raid, then log out fully" },
+    { n = 9, name = "Combat log file (optional)", todo = "/combatlog for one dungeon run" },
+}
+
+local PLAYER_CHAT = {
+    CHAT_MSG_SAY = true, CHAT_MSG_YELL = true, CHAT_MSG_EMOTE = true, CHAT_MSG_TEXT_EMOTE = true,
+    CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true, CHAT_MSG_RAID = true, CHAT_MSG_RAID_LEADER = true,
+    CHAT_MSG_RAID_WARNING = true, CHAT_MSG_INSTANCE_CHAT = true, CHAT_MSG_INSTANCE_CHAT_LEADER = true,
+}
+
+-- One short line per check number saying what the probe has recorded so far. Pure: it reads only the given table.
+function P.CheckProgress(d)
+    local function sumChat(test)
+        local open, inst = 0, 0
+        for key, n in pairs(d.counts or {}) do
+            local ev, itype = key:match("^([^|]+)|([^|]+)|")
+            if ev and test(ev) then
+                if itype == "none" or itype == "?" then open = open + n else inst = inst + n end
+            end
+        end
+        return open, inst
+    end
+    local by = {}
+    for _, e in ipairs(d.log or {}) do
+        by[e.ev] = by[e.ev] or {}
+        table.insert(by[e.ev], e)
+    end
+    local function count(ev, test)
+        local c = 0
+        for _, e in ipairs(by[ev] or {}) do if not test or test(e) then c = c + 1 end end
+        return c
+    end
+    local p = {}
+    local o, i = sumChat(function(ev) return PLAYER_CHAT[ev] end)
+    p[6] = string.format("%d lines in the open world, %d in instances", o, i)
+    p[2] = string.format("%d quest windows opened", count("quest", function(e) return e.quest == "QUEST_DETAIL" end))
+    p[3] = string.format("%d deaths, %d boss kills", count("death"), count("boss", function(e) return e.game == "BOSS_KILL" end))
+    local dungeon = count("zone", function(e) return e.changed and e.inst == "party" end)
+    local raid = count("zone", function(e) return e.changed and e.inst == "raid" end)
+    p[7] = string.format("%d dungeon entries", dungeon)
+    o, i = sumChat(function(ev) return ev:find("MONSTER") or ev:find("RAID_BOSS") end)
+    p[4] = string.format("%d NPC lines in the open world, %d in instances", o, i)
+    p[1] = string.format("%d logins recorded", d.loads or 0)
+    local m = d.minimapResult
+    p[10] = (m and m.created) and string.format("button made, angle %d", tonumber(d.minimapAngle) or 200) or "button not made"
+    p[5] = d.fill and string.format("%d filler entries", #d.fill) or "not filled yet"
+    p[8] = string.format("%d raid entries", raid)
+    p[9] = "not recorded by the probe; check the Logs folder for WoWCombatLog.txt"
+    return p
+end
+
+-- ---------------------------------------------------------------------------------------------------------------------
 -- Slash commands
+
+function P.PrintChecks()
+    ensureDb()
+    local out = (DEFAULT_CHAT_FRAME and function(s) DEFAULT_CHAT_FRAME:AddMessage(s) end) or print
+    local progress = P.CheckProgress(db)
+    out("|cff66ccffJourneyProbe|r checks, most important first. Seen so far is since the last /jmp reset.")
+    for rank, c in ipairs(P.CHECKS) do
+        out(string.format("%d. |cffffd100Check %d: %s|r - %s. |cff999999Seen: %s|r", rank, c.n, c.name, c.todo, progress[c.n]))
+    end
+    out("Then /reload or log out, and run scripts\\probe_report.py for the full results.")
+end
 
 function P.PrintStatus()
     ensureDb()
@@ -427,7 +501,7 @@ function P.PrintStatus()
     for _ in pairs(db.counts) do keys = keys + 1 end
     out(string.format("v%s, loads %d, %d entries (cap %d, dropped %d), %d counters, CLEU fired %d, minimap angle %d",
         P.VERSION, db.loads, #db.log, CAP, db.dropped, keys, db.cleuFired or 0, minimapAngle()))
-    out("Play normally, then /reload or log out. /jmp mark <text> adds a note; /jmp fill <n> grows the file; /jmp reset wipes it.")
+    out("Play normally, then /reload or log out. /jmp list shows the checks; /jmp mark <text> adds a note; /jmp fill <n> grows the file; /jmp reset wipes it.")
 end
 
 function P.Slash(msg)
@@ -437,6 +511,8 @@ function P.Slash(msg)
     if cmd == "mark" then
         P.Record("mark", { note = rest ~= "" and rest or "(no text)" })
         P.PrintStatus()
+    elseif cmd == "list" then
+        P.PrintChecks()
     elseif cmd == "api" then
         local line = {}
         for _, name in ipairs(P.API_NAMES) do line[#line + 1] = name .. "=" .. tostring(db.api and db.api[name]) end
