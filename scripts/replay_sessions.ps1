@@ -82,6 +82,9 @@ Add-E ($t + 930) @{ k = 'chat'; ch = 'say'; who = $P; text = 'Arrived yesterday.
 Add-E ($t + 960) @{ k = 'group'; act = 'join'; who = 'Tobin Fairweather'; z = 'Elwynn Forest'; sz = 'Northshire Vineyards' }
 Add-E ($t + 1500) @{ k = 'chat'; ch = 'party'; who = 'Tobin Fairweather'; text = 'That makes ten. Back to McBride?'; z = 'Elwynn Forest'; sz = 'Echo Ridge Mine' }
 Add-E ($t + 1600) @{ k = 'level'; level = 6; played = 7200; z = 'Elwynn Forest'; sz = 'Echo Ridge Mine' }
+Add-E ($t + 1602) @{ k = 'shot'; why = 'level'; z = 'Elwynn Forest'; sz = 'Echo Ridge Mine' }
+# The game's screenshot for it, a moment later (any bytes will do: the app only copies the file).
+$shotName = 'WoWScrnShot_' + (ConvertFrom-Epoch ($t + 1603)).ToString('MMddyy_HHmmss') + '.jpg'
 Add-E ($t + 2400) @{ k = 'quest'; act = 'turnin'; id = 7; title = 'Kobold Camp Cleanup'; giver = 'Marshal McBride'; xp = 180; money = 35; z = 'Elwynn Forest'; sz = 'Northshire Abbey' }
 Add-E ($t + 2500) @{ k = 'group'; act = 'leave'; who = 'Tobin Fairweather'; z = 'Elwynn Forest'; sz = 'Northshire Abbey' }
 Add-E ($t + 3000) @{ k = 'logout'; z = 'Elwynn Forest'; sz = 'Northshire Abbey' }
@@ -157,6 +160,7 @@ $svPath = Join-Path $Wow 'WTF\Account\REPLAY\SavedVariables\JourneyMaster.lua'
 New-Item -ItemType Directory -Force (Split-Path $svPath) | Out-Null
 [IO.File]::WriteAllText($svPath, "`nJourneyMasterDB = $(ConvertTo-Lua ([ordered]@{ schema = 1; characters = [ordered]@{ 'Maren Ashdown-Replay' = $char } }))`n", $Utf8)
 [IO.File]::WriteAllText((Join-Path $Wow 'Logs\WoWChatLog.txt'), (($log.ToArray() -join "`r`n") + "`r`n"), $Utf8)
+[IO.File]::WriteAllBytes((Join-Path $Wow "Screenshots\$shotName"), [byte[]](255, 216, 255, 217))
 Write-Host "Made-up journey: $($script:i) entries in 4 sessions, $($log.Count) chat log lines." -ForegroundColor Cyan
 
 # Run the app --------------------------------------------------------------------------------------------------------------
@@ -185,7 +189,7 @@ foreach ($s in $sessions) {
     $info = $info.Value
     $doc = Read-SessionMarkdown (Read-FileText (Join-Path $charDir "sessions\$($info.File)"))
     $record = Read-FileText (Join-Path $charDir ('records\' + [IO.Path]::ChangeExtension($info.File, '.txt')))
-    $account = $doc.Title + "`n" + $doc.Body
+    $account = $doc.Title + "`n" + ($doc.Body -replace '(?s)\n## Screenshots.*$', '') # the app adds that section, not the AI
     $invented = @(Test-Grounded $account ($record + "`n" + $P))
     $lost = @(Test-Coverage $account (Get-KeyFacts $s.Entries $P))
     $meta = @(Test-SourceMentions $doc.Body)
@@ -193,6 +197,30 @@ foreach ($s in $sessions) {
     if (-not $ok) { $failed++ }
     $report.Add("| $($s.S) | $($doc.Title) | $($info.Parts) | $(if ($invented) { $invented -join ', ' } else { 'none' }) | $(if ($lost) { $lost -join '; ' } else { 'none' }) | $(if ($meta) { $meta -join ', ' } else { 'none' }) | $(if ($ok) { 'pass' } else { 'FAIL' }) |")
 }
+# Phase 5: the screenshot is linked from its session, the overview invents nothing, and the export holds every session.
+$docs = @(Get-ChildItem (Join-Path $charDir 'sessions') -Filter '*.md' | Sort-Object Name | ForEach-Object { Read-SessionMarkdown (Read-FileText $_.FullName) })
+$extras = @()
+if (-not ($docs[0].Body -match '!\[Level up, \d\d:\d\d\]\(\.\./screenshots/[^)]+-level\.jpg\)')) { $extras += 'the level-up screenshot is not linked from session 1' }
+if (@(Get-ChildItem (Join-Path $charDir 'screenshots') -ErrorAction SilentlyContinue).Count -ne 1) { $extras += 'the screenshot was not copied' }
+$overviewPath = Join-Path $charDir 'overview.md'
+if (Test-Path -LiteralPath $overviewPath) {
+    $ov = (Read-SessionMarkdown (Read-FileText $overviewPath)).Body
+    $ovSource = "$P`n" + (($docs | ForEach-Object { "$($_.Title) $($_.Line) $($_.Body)" }) -join "`n")
+    $ovInvented = @(Test-Grounded $ov $ovSource)
+    if ($ovInvented.Count -gt 0) { $extras += "the overview names things the sessions do not hold: $($ovInvented -join ', ')" }
+    $ovMeta = @(Test-SourceMentions $ov)
+    $report.Add('')
+    $report.Add("Overview: $(($ov -split '\s+').Count) words; invented: $(if ($ovInvented) { $ovInvented -join ', ' } else { 'none' }); talks about its sources: $(if ($ovMeta) { $ovMeta -join ', ' } else { 'none' }).")
+} else { $extras += 'no overview was written' }
+$journalPath = Join-Path $charDir 'journal.md'
+if (Test-Path -LiteralPath $journalPath) {
+    $j = Read-FileText $journalPath
+    foreach ($d in $docs) { if (-not $j.Contains("## $($d.Title)")) { $extras += "the export lacks '$($d.Title)'" } }
+    if (-not ($j -match '\]\(screenshots/')) { $extras += 'the export does not link the screenshot from the character folder' }
+    $report.Add("Export: journal.md with $($docs.Count) sessions$(if ($j -match '## Overview') { ' and the overview' }).")
+} else { $extras += 'no export was written' }
+foreach ($x in $extras) { $report.Add("FAIL: $x."); $failed++ }
+
 $long = $state.Characters.'Maren Ashdown-Replay'.Sessions.'3'
 if (-not $long -or [int]$long.Parts -lt 2) { $report.Add(''); $report.Add('FAIL: the long session was not summarised in parts.'); $failed++ }
 $report.Add('')
