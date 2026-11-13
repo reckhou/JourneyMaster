@@ -81,6 +81,7 @@ Everything stays under `data\` in this folder. Git ignores it.
 | `src/JourneyProbe/`, `scripts/probe_report.py` | The Phase 0 probe that checked what the game allows. It is not installed any more |
 | `tests/` | Offline harnesses |
 | `scripts/replay_sessions.ps1` | Runs a made-up journey through the app and checks that no summary invents or loses anything |
+| `scripts/compare_models.ps1` | Summarises one real session with a chosen AI model and effort, with the app's own prompt and checks, and saves the result for comparison (`-Label`, `-Model`, `-Effort`) |
 
 Run the tests:
 
