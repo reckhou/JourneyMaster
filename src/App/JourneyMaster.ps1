@@ -143,21 +143,29 @@ function Invoke-Model([string]$Rules, [string]$Prompt) {
     $r
 }
 
-# Asks for an account that holds only what the source holds. A reply that names things not in the source is asked
-# again once, with those names listed; if it still does, the better reply is kept and the names are reported.
-function Get-GroundedReply([string]$Rules, [string]$Prompt, [string]$Source) {
+# Asks for an account that holds only what the source holds and loses none of the key facts. A reply that names things
+# not in the source, or leaves out a key fact, is asked for again with those listed; if the last attempt still falls
+# short, the best reply is kept and what it got wrong is reported.
+function Get-GroundedReply([string]$Rules, [string]$Prompt, [string]$Source, $Facts = @(), [bool]$CheckTitle = $true) {
     $best = $null
     $ask = $Prompt
     for ($a = 1; $a -le $Attempts; $a++) {
         $r = Invoke-Model $Rules $ask
         if ($r.is_error -or -not $r.result) { Say "the AI call failed: $($r.result)" 'Yellow'; continue }
         $reply = ConvertFrom-SummaryReply ([string]$r.result)
-        $missing = @(Test-Grounded ($reply.Title + "`n" + $reply.Body) $Source)
-        if (-not $best -or $missing.Count -lt $best.Missing.Count) { $best = [pscustomobject]@{ Title = $reply.Title; Body = $reply.Body; Missing = $missing } }
-        if ($missing.Count -eq 0) { break }
-        Dbg "not in the record: $($missing -join ', ')"
-        $ask = $Prompt + "`n`n# Correction`nYour previous reply named things the record does not hold: " + ($missing -join ', ') +
-            ". Write the account again using only what the record holds."
+        $checked = if ($CheckTitle) { $reply.Title + "`n" + $reply.Body } else { $reply.Body } # later parts' titles are thrown away
+        $missing = @(Test-Grounded $checked $Source)
+        $lost = @(Test-Coverage ($reply.Title + "`n" + $reply.Body) $Facts)
+        $meta = @(Test-SourceMentions $reply.Body)
+        $score = $missing.Count + $lost.Count + $meta.Count
+        if (-not $best -or $score -lt $best.Score) { $best = [pscustomobject]@{ Title = $reply.Title; Body = $reply.Body; Missing = $missing; Lost = $lost; Meta = $meta; Score = $score } }
+        if ($score -eq 0) { break }
+        Dbg "not in the record: $($missing -join ', '); left out: $($lost -join ', '); talks about its sources: $($meta -join ', ')"
+        $fix = @()
+        if ($meta.Count -gt 0) { $fix += 'Your previous reply talked about its sources (' + ($meta -join ', ') + '). Write only about the events, as a chronicle.' }
+        if ($missing.Count -gt 0) { $fix += 'Your previous reply named things the record does not hold: ' + ($missing -join ', ') + '. Use only what the record holds.' }
+        if ($lost.Count -gt 0) { $fix += 'Your previous reply left out these events, which must be in the account: ' + ($lost -join '; ') + '.' }
+        $ask = $Prompt + "`n`n# Correction`n" + ($fix -join "`n") + "`nWrite the account again."
     }
     $best
 }
@@ -203,15 +211,21 @@ function Invoke-SessionSummary($key, $c, $Session) {
     $lore = Get-LoreText $LoreDir $facts.Zones $facts.Subzones
     $rules = Get-NarratorRules
     $parts = @(Split-RecordLines $lines $MaxPromptChars)
-    $title = ''; $bodies = @(); $missing = @()
+    $keyFacts = @(Get-KeyFacts $entries $player)
+    $title = ''; $bodies = @(); $missing = @(); $lost = @(); $meta = @()
     for ($p = 0; $p -lt $parts.Count; $p++) {
-        $prompt = New-SummaryPrompt $header $parts[$p] $lore ($p + 1) $parts.Count ($bodies -join "`n`n")
-        $source = $header + "`n" + ($parts[$p] -join "`n") + "`n" + $lore + "`n" + ($bodies -join "`n") + "`n$player"
-        $reply = Get-GroundedReply $rules $prompt $source
+        $partText = $parts[$p] -join "`n"
+        # The key facts this part holds, so a long session summarised in parts loses none of them.
+        $partFacts = @($keyFacts | Where-Object { $t = $_.Terms[0]; $t -and $partText.ToLowerInvariant().Contains($t.ToLowerInvariant()) })
+        $prompt = New-SummaryPrompt $header $parts[$p] $lore ($p + 1) $parts.Count ($bodies -join "`n`n") @($partFacts | ForEach-Object { $_.What })
+        $source = $header + "`n" + $partText + "`n" + $lore + "`n" + ($bodies -join "`n") + "`n$player"
+        $reply = Get-GroundedReply $rules $prompt $source $partFacts ($p -eq 0)
         if (-not $reply) { return $false }
         if ($p -eq 0) { $title = $reply.Title }
         $bodies += $reply.Body
         $missing += $reply.Missing
+        $lost += $reply.Lost
+        $meta += $reply.Meta
     }
     if (-not $title) { $title = 'A session on ' + (ConvertFrom-Epoch $Session.First).ToString('d MMMM yyyy') }
     $shots = Save-Screenshots $c $Session
@@ -220,9 +234,13 @@ function Invoke-SessionSummary($key, $c, $Session) {
     $file = Get-SessionFileName $sessionsDir $Session.First
     $line = Format-SessionLine ([pscustomobject]@{ Name = $player }) $Session $facts
     Write-FileAtomic (Join-Path $sessionsDir $file) (Format-SessionMarkdown $title $line ($bodies -join "`n`n") $shots)
+    # The exact record the AI was given, kept beside the summary so it can be checked against its source.
+    Write-FileAtomic (Join-Path (Join-Path (Get-CharDir $c) 'records') ([IO.Path]::ChangeExtension($file, '.txt'))) ($header + "`n`n" + ($lines -join "`n") + "`n")
     $c.Sessions["$($Session.S)"] = [pscustomobject]@{ File = $file; Title = $title; First = $Session.First; Last = $Session.Last;
-        Zones = @($facts.Zones); LevelFrom = $facts.LevelFrom; LevelTo = $facts.LevelTo; Parts = $parts.Count; Ungrounded = @($missing | Select-Object -Unique) }
+        Zones = @($facts.Zones); LevelFrom = $facts.LevelFrom; LevelTo = $facts.LevelTo; Parts = $parts.Count;
+        Ungrounded = @($missing | Select-Object -Unique); Lost = @($lost | Select-Object -Unique); SourceMentions = @($meta | Select-Object -Unique) }
     if ($missing.Count -gt 0) { Say "$key`: '$title' names things not in the record: $(@($missing | Select-Object -Unique) -join ', ')" 'Yellow' }
+    if ($lost.Count -gt 0) { Say "$key`: '$title' leaves out: $(@($lost | Select-Object -Unique) -join '; ')" 'Yellow' }
     Say "$key`: summarised session $($Session.S) as sessions\$file$(if ($parts.Count -gt 1) { " ($($parts.Count) parts)" })" 'Green'
     $true
 }

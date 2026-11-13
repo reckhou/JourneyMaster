@@ -173,6 +173,7 @@ JourneyMasterOther = nil
     $merged = @(Merge-ChatLog (@($dungeon.Entries) + @(@{ k = 'death'; t = $T + 82 })) $inWin 'Baldrake Cavendell' @())
     $kinds = ($merged | ForEach-Object { Get-Field $_ 'k' }) -join ','
     Check 'merged kinds' $kinds 'enter,chat,said,chat,kills,logloot,death,leave'
+    Check 'kills placed at the last kill' (Get-Field ($merged | Where-Object { (Get-Field $_ 'k') -eq 'kills' }) 't') ($T + 60)
     $kills = $merged | Where-Object { (Get-Field $_ 'k') -eq 'kills' }
     Check 'kills gathered' (Get-Field $kills 'list') 'Defias Prisoner x2'
     $said = $merged | Where-Object { (Get-Field $_ 'who') -eq 'Seph Stormbrewer' -and (Get-Field $_ 'ch') -eq 'say' }
@@ -200,11 +201,23 @@ JourneyMasterOther = nil
     Check 'grounded account' (@(Test-Grounded 'Later, Baldrake met Seph in Darkshire and earned 1900 experience.' $src).Count) 0
     Check 'invented name and number' ((Test-Grounded 'Then Baldrake met Zanzibar and earned 42 gold.' $src) -join ',') 'Zanzibar,42'
     Check 'possessive' (@(Test-Grounded "Baldrake's friend Seph's sword." $src).Count) 0
+    Check 'ordinary word starting a title' (@(Test-Grounded ("Quiet evening in Darkshire`nIt was a quiet evening.") $src).Count) 0
+    Check 'name starting a sentence still caught' ((Test-Grounded 'Baldrake went on. Quillfeather followed.' $src) -join ',') 'Quillfeather'
+    Check 'source mentions found' ((Test-SourceMentions 'The record holds nothing more. In this part Maren slept, as the chat log shows.') -join '|') 'the record|this part|the chat log'
+    Check 'plain account has none' (@(Test-SourceMentions 'Maren slept at the inn and recorded nothing in her diary.').Count) 0
     Check 'plurals of recorded names' (@(Test-Grounded 'The Skeletal Healers and the Tainted Ones fell.' '3/3 Skeletal Healer slain. 8/8 Nightbane Tainted One slain.').Count) 0
     $hdr = Format-RecordHeader ([pscustomobject]@{ Name = 'Baldrake'; Race = 'Human'; Class = 'Warlock'; Faction = 'Alliance'; Sex = 2 }) ([pscustomobject]@{ First = $T; Last = $T + 60 }) ([pscustomobject]@{ LevelFrom = 26; LevelTo = 26; Zones = @('Duskwood') })
     True 'header gives the sex' ($hdr -match 'Character: Baldrake, a male Human Warlock of the Alliance\.')
     $hdr = Format-RecordHeader ([pscustomobject]@{ Name = 'Baldrake'; Race = 'Human'; Class = 'Warlock'; Faction = $null }) ([pscustomobject]@{ First = $T; Last = $T + 60 }) ([pscustomobject]@{ LevelFrom = $null; LevelTo = $null; Zones = @() })
     True 'header without the sex' ($hdr -match 'Character: Baldrake, a Human Warlock\.')
+    $kf = @(Get-KeyFacts @(
+        @{ k = 'quest'; act = 'accept'; title = 'The Stockade Riots' }, @{ k = 'quest'; act = 'turnin'; title = 'The Stockade Riots' },
+        @{ k = 'enter'; inst = 'The Stockade' }, @{ k = 'boss'; name = 'Bazil Thredd' }, @{ k = 'level'; level = 25 },
+        @{ k = 'death'; killer = 'Targorr the Dread' }, @{ k = 'death'; who = 'Seph' }, @{ k = 'group'; act = 'join'; who = 'Tobin Fairweather' },
+        @{ k = 'chat'; ch = 'say'; who = 'X'; text = 'y' }) 'Maren')
+    Check 'key facts' (($kf | ForEach-Object { $_.What }) -join '|') 'quest The Stockade Riots|entered The Stockade|defeated Bazil Thredd|level 25|death, killed by Targorr the Dread|Tobin Fairweather joined'
+    Check 'nothing lost' (@(Test-Coverage 'Maren took The Stockade Riots, entered The Stockade with Tobin, saw Bazil Thredd fall, reached level 25, and was killed by Targorr the Dread.' $kf).Count) 0
+    Check 'lost facts reported' ((Test-Coverage 'Maren entered The Stockade with Tobin and reached level 25.' $kf) -join '|') 'quest The Stockade Riots|defeated Bazil Thredd|death, killed by Targorr the Dread'
     True 'no empty screenshots heading' ((Format-SessionMarkdown 'T' 'L' 'Body.' $null) -notmatch 'Screenshots')
     $parts = @(Split-RecordLines @('aaaa', 'bbbb', 'cccc', 'dddd') 10)
     Check 'split in order' (($parts | ForEach-Object { $_ -join '' }) -join '|') 'aaaabbbb|ccccdddd'
@@ -306,6 +319,9 @@ JourneyMasterOther = nil
     True 'session file has a title' ($md -match '^# Session record')
     True 'session file has the header line' ($md -match 'level 26 to 27')
     True 'session file links the screenshot' ($md -match '!\[Level up, \d\d:\d\d\]\(\.\./screenshots/2026-11-12_\d{6}-level\.jpg\)')
+    Check 'records kept beside the summaries' @(Get-ChildItem (Join-Path $charDir 'records') -Filter '*.txt').Count 2
+    True 'record holds the chat log lines' ((Read-FileText (Join-Path $charDir 'records/2026-11-12-2.txt')) -match 'from the chat log')
+    True 'key events listed in the prompt' ($prompt -match '# Key events \(each must appear in the account\)' -and $prompt -match '- entered The Stockade')
     Check 'screenshot copied' @(Get-ChildItem (Join-Path $charDir 'screenshots')).Count 1
     True 'overview written' (Test-Path (Join-Path $charDir 'overview.md'))
     $journal = Read-FileText (Join-Path $charDir 'journal.md')
@@ -335,7 +351,7 @@ JourneyMasterOther = nil
     $new = @(Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Skip $before)
     True 'long session in several parts' ($new.Count -ge 4)
     $texts = @($new | ForEach-Object { Get-Content -Raw $_.FullName })
-    True 'a later part carries the account so far' (@($texts | Where-Object { $_ -match 'This is part 2' -and $_ -match 'The account so far' }).Count -ge 1)
+    True 'a later part carries the account so far' (@($texts | Where-Object { $_ -match 'this is piece 2' -and $_ -match 'The account so far' }).Count -ge 1)
     True 'invented name asked for again' (@($texts | Where-Object { $_ -match '# Correction' -and $_ -match 'Zanzibar' }).Count -ge 1)
     $files = @(Get-ChildItem (Join-Path $charDir 'sessions') | Sort-Object Name)
     Check 'third session file' $files.Count 3

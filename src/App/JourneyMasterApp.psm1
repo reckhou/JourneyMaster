@@ -319,8 +319,10 @@ function Merge-ChatLog($Entries, $LogLines, [string]$Player, $Players) {
                     $added.Add([ordered]@{ t = $l.T; k = 'death'; who = $l.Who; z = $win; src = 'log' })
                 }
             }
-            'kill' { if (-not $kills.Contains($win)) { $kills[$win] = [ordered]@{ T = $l.T; Names = [ordered]@{} } }; $kills[$win].Names[$l.Name] = 1 + [int]$kills[$win].Names[$l.Name] }
-            'loot' { if (-not $loot.Contains($win)) { $loot[$win] = [ordered]@{ T = $l.T; Items = [ordered]@{} } }; $loot[$win].Items[$l.Item] = $l.N + [int]$loot[$win].Items[$l.Item] }
+            # Kills and loot are gathered into one entry per window, placed at the last of them, so the account never
+            # suggests that all of it had happened by the first.
+            'kill' { if (-not $kills.Contains($win)) { $kills[$win] = [ordered]@{ T = $l.T; Names = [ordered]@{} } }; $kills[$win].T = $l.T; $kills[$win].Names[$l.Name] = 1 + [int]$kills[$win].Names[$l.Name] }
+            'loot' { if (-not $loot.Contains($win)) { $loot[$win] = [ordered]@{ T = $l.T; Items = [ordered]@{} } }; $loot[$win].T = $l.T; $loot[$win].Items[$l.Item] = $l.N + [int]$loot[$win].Items[$l.Item] }
             'quest' { $added.Add([ordered]@{ t = $l.T; k = 'quest'; act = $(if ($l.Act -eq 'accept') { 'accept' } else { 'done' }); title = $l.Title; z = $win; src = 'log' }) }
             'group' { $added.Add([ordered]@{ t = $l.T; k = 'group'; act = $l.Act; who = $l.Who; z = $win; src = 'log' }) }
         }
@@ -414,8 +416,8 @@ function Format-Entry($Entry, [string]$Player) {
             return "$line."
         }
         'boss' { return "$Player's group defeated $(& $f 'name')." }
-        'kills' { return "Creatures killed in $(& $f 'z') (from the chat log): $(& $f 'list')." }
-        'logloot' { return "$Player's own loot in $(& $f 'z') (from the chat log): $(& $f 'list')." }
+        'kills' { return "Creatures killed in $(& $f 'z') during this visit, up to now (from the chat log): $(& $f 'list')." }
+        'logloot' { return "$Player's own loot in $(& $f 'z') during this visit, up to now (from the chat log): $(& $f 'list')." }
         'loot' { $n = & $f 'n'; return "$Player looted $(& $f 'item')" + $(if ($n -gt 1) { " x$n" } else { '' }) + '.' }
         'gear' { return "$Player equipped $(& $f 'item') ($(& $f 'slot'))." }
         'money' { return "$Player's money reached $(Format-Money ([long](& $f 'copper')))." }
@@ -508,7 +510,9 @@ Faithfulness:
 - Every person, place, item, quest, creature and number you name must appear in the record (or, for places, in the lore notes). If the record does not say why something happened, do not say why.
 - The quest text explains why a quest was taken; you may say what the quest asked, in your own words.
 - Lore notes are background only, so that places are described correctly. Never take events from them.
-- Lines marked "hidden from the add-on" mean the game hid what was said; do not guess at it.
+- Lines marked "hidden from the add-on" mean the game hid what was said; do not guess at it. You may say only that what was said there is not known.
+- Write about the events, not about your sources: never mention the record, the add-on, the chat log, the lore notes or the parts of a long session.
+- If something did not happen or was not recorded, leave it out. Do not write that the record shows nothing, or that nothing more is known.
 - A death with no killer recorded has no known killer. Do not name one.
 
 Other players:
@@ -522,20 +526,20 @@ Length and form:
 - Write in paragraphs of prose, in the order things happened. No headings, no bullet lists, no times of day unless they matter.
 
 Reply in exactly this form:
-TITLE: <a plain title for the session, at most eight words>
+TITLE: <a plain title for the session, at most eight words, in sentence case: a capital letter only for the first word and for names>
 
 <the account>
 '@
 }
 
 # The user prompt for a session or for one part of a long session.
-function New-SummaryPrompt([string]$Header, [string[]]$Lines, [string]$Lore, [int]$Part = 1, [int]$Parts = 1, [string]$Previous = '') {
+function New-SummaryPrompt([string]$Header, [string[]]$Lines, [string]$Lore, [int]$Part = 1, [int]$Parts = 1, [string]$Previous = '', [string[]]$KeyEvents = @()) {
     $sb = New-Object Text.StringBuilder
     [void]$sb.AppendLine('# Session facts')
     [void]$sb.AppendLine($Header)
     if ($Parts -gt 1) {
         [void]$sb.AppendLine()
-        [void]$sb.AppendLine("This session is long, so its record comes in $Parts parts. This is part $Part.")
+        [void]$sb.AppendLine("This session is long, so its record comes in $Parts pieces; this is piece $Part. Write the account of this piece only, as the next stretch of one continuous chronicle. The reader must not be able to tell where one piece ends: never mention pieces or parts.")
         if ($Previous) {
             [void]$sb.AppendLine('The account so far, for continuity only. Do not repeat it; continue from where it ends, in the same voice:')
             [void]$sb.AppendLine('"""')
@@ -548,6 +552,11 @@ function New-SummaryPrompt([string]$Header, [string[]]$Lines, [string]$Lore, [in
         [void]$sb.AppendLine()
         [void]$sb.AppendLine('# Lore notes (background for places only)')
         [void]$sb.AppendLine($Lore.Trim())
+    }
+    if (@($KeyEvents).Count -gt 0) {
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('# Key events (each must appear in the account)')
+        foreach ($k in $KeyEvents) { [void]$sb.AppendLine("- $k") }
     }
     [void]$sb.AppendLine()
     [void]$sb.AppendLine('# Record')
@@ -594,7 +603,10 @@ $CommonWords = @('The', 'A', 'An', 'He', 'She', 'They', 'It', 'His', 'Her', 'Her
     'Among', 'Across', 'Around', 'Between', 'Without', 'Within', 'Until', 'Since', 'Though', 'Although', 'Despite', 'Instead', 'First', 'Second',
     'Third', 'Last', 'Earlier', 'Further', 'Furthermore', 'However', 'Thereafter', 'Together', 'Alone', 'Monday', 'Tuesday', 'Wednesday',
     'Thursday', 'Friday', 'Saturday', 'Sunday', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
-    'November', 'December', 'I', 'TITLE', 'NPC', 'XP', 'Level', 'Quest', 'Party', 'Raid', 'Gold', 'Silver', 'Copper', 'World', 'Warcraft', 'WoW', 'Forever')
+    'November', 'December', 'Only', 'Just', 'Even', 'Otherwise', 'Perhaps', 'Eventually', 'Thus', 'Hence', 'Indeed', 'Briefly',
+    'Overall', 'Neither', 'Nor', 'Either', 'All', 'Any', 'None', 'Much', 'More', 'Less', 'Few', 'Little', 'Such', 'Same', 'Twice',
+    'Long', 'Little', 'Yes', 'Well', 'Again', 'Aside', 'Apart', 'Beyond', 'Above', 'Below', 'Behind', 'Beside', 'Like', 'Unlike',
+    'Following', 'Shortly', 'Moments', 'Minutes', 'Hours', 'Later', 'Midway', 'Partway', 'Elsewhere', 'Nearby', 'Whether', 'I', 'TITLE', 'NPC', 'XP', 'Level', 'Quest', 'Party', 'Raid', 'Gold', 'Silver', 'Copper', 'World', 'Warcraft', 'WoW', 'Forever')
 
 # The names and numbers in an account that its source does not hold: capitalised words that appear nowhere in the
 # source (in any case), and numbers that are not in it. Each is reported once. An empty list means grounded.
@@ -604,9 +616,16 @@ function Test-Grounded([string]$Account, [string]$Source) {
     foreach ($m in [regex]::Matches(($Source -replace '(?<=\d),(?=\d{3})', ''), '\d+(?:\.\d+)?')) { $srcNumbers[$m.Value] = $true }
     $missing = New-Object Collections.Generic.List[string]
     $seen = @{}
+    # Words the account itself uses in lower case are ordinary words, so a capital at the start of a sentence or a line
+    # does not make them names ("Quiet" after "a quiet hour").
+    $plain = @{}
+    foreach ($m in [regex]::Matches($Account, "(?<![\p{L}'])\p{Ll}[\p{L}']*")) { $plain[$m.Value] = $true }
     foreach ($m in [regex]::Matches($Account, "\b\p{Lu}[\p{L}']*(?:-\p{Lu}[\p{L}']*)?")) {
         $w = $m.Value.TrimEnd("'").Replace("'s", '')
         if ($seen.ContainsKey($w) -or $CommonWords -ccontains $w) { continue }
+        $before = $Account.Substring(0, $m.Index).TrimEnd(' ', '"', "'", '(', '*')
+        $startsSentence = $before -eq '' -or $before.EndsWith('.') -or $before.EndsWith('!') -or $before.EndsWith('?') -or $before.EndsWith(':') -or $before.EndsWith("`n")
+        if ($startsSentence -and $plain.ContainsKey($w.ToLowerInvariant())) { continue }
         $seen[$w] = $true
         $low = $w.ToLowerInvariant()
         $parts = $low -split '-'
@@ -627,6 +646,51 @@ function Test-Grounded([string]$Account, [string]$Source) {
         if (-not $srcNumbers.ContainsKey($n)) { $missing.Add($n) }
     }
     $missing.ToArray()
+}
+
+# The key facts of a session that its account must not lose: quests taken and handed in, dungeons entered, bosses
+# defeated, levels reached, deaths (and the killer when known), and people who joined the group. Returns objects What
+# (a description) and Terms (the account must contain one of them, in any case).
+function Get-KeyFacts($Entries, [string]$Player) {
+    $out = New-Object Collections.Generic.List[object]
+    $seen = @{}
+    foreach ($e in @($Entries)) {
+        $f = { param($n) Get-Field $e $n }
+        $item = switch (& $f 'k') {
+            'quest' { if ((& $f 'act') -in 'accept', 'turnin') { [pscustomobject]@{ What = "quest $(& $f 'title')"; Terms = @([string](& $f 'title')) } } }
+            'enter' { [pscustomobject]@{ What = "entered $(& $f 'inst')"; Terms = @([string](& $f 'inst')) } }
+            'boss' { [pscustomobject]@{ What = "defeated $(& $f 'name')"; Terms = @([string](& $f 'name')) } }
+            'level' { [pscustomobject]@{ What = "level $(& $f 'level')"; Terms = @("level $(& $f 'level')") } }
+            'death' {
+                if (& $f 'who') { $null }
+                elseif (& $f 'killer') { [pscustomobject]@{ What = "death, killed by $(& $f 'killer')"; Terms = @([string](& $f 'killer')) } }
+                else { [pscustomobject]@{ What = 'death'; Terms = @('died', 'death', 'killed', 'fell', 'slain') } }
+            }
+            'group' { if ((& $f 'act') -eq 'join') { $name = [string](& $f 'who'); [pscustomobject]@{ What = "$name joined"; Terms = @($name, ($name -split ' ')[0]) } } }
+        }
+        if ($item -and -not $seen.ContainsKey($item.What)) { $seen[$item.What] = $true; $out.Add($item) }
+    }
+    $out.ToArray()
+}
+
+# The key facts an account does not mention. An empty list means nothing was lost.
+function Test-Coverage([string]$Account, $Facts) {
+    $low = $Account.ToLowerInvariant() -replace '\s+', ' '
+    foreach ($f in @($Facts | Where-Object { $_ })) {
+        $hit = $false
+        foreach ($t in $f.Terms) { if ($t -and $low.Contains(([string]$t).ToLowerInvariant())) { $hit = $true } }
+        if (-not $hit) { $f.What }
+    }
+}
+
+# Phrases by which an account talks about its sources instead of the events (the narrator rules forbid them).
+function Test-SourceMentions([string]$Account) {
+    $found = New-Object Collections.Generic.List[string]
+    foreach ($m in [regex]::Matches($Account, '(?i)\b(the record|this (?:part|piece)|the (?:next|previous|earlier) (?:part|piece)|the add-on|the chat log|lore notes)\b')) {
+        $v = $m.Value.ToLowerInvariant()
+        if (-not $found.Contains($v)) { $found.Add($v) }
+    }
+    $found.ToArray()
 }
 
 # Session files -----------------------------------------------------------------------------------------------------------
@@ -773,6 +837,7 @@ You write the overview of a character's journey in World of Warcraft (the WoW: F
 - Tell the journey as a whole: where the character went, what it did and with whom, the turning points (levels, deaths, dungeons, bosses). Leave out small detail.
 - Paragraphs of prose, in order. No headings and no lists.
 - If a previous overview is given, rewrite it to take in the new entries; keep what it says that is still true.
+- Write about the events, not about your sources: never mention entries, records, sessions' files or the chat log.
 
 Reply with the overview only.
 '@
@@ -851,7 +916,7 @@ function Invoke-ClaudeCli([string]$ClaudePath, [string[]]$Arguments, [string]$Wo
     $result
 }
 
-Export-ModuleMember -Function Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
+Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Test-Coverage, Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
     Get-Field, Add-EventEntries, Read-EventEntries, Get-Sessions, Test-HasInstance, Test-SessionFinished, Get-SessionFacts,
     Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
     Format-Entry, Format-RecordLines, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,

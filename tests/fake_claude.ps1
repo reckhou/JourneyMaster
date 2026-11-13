@@ -19,7 +19,7 @@ foreach ($l in ($prompt -replace "`r", '') -split "`n") {
     if ($l -match '^# Correction') { break }
     if ($inRecord -and $l.Trim() -and $l -notmatch '^#') { $lines += ($l -replace '^\d\d:\d\d ', '') }
 }
-$body = ($lines | Select-Object -First 6) -join ' '
+$body = $lines -join " "
 if ($env:FAKE_CLAUDE_INVENT -eq '1' -and $prompt -notmatch '# Correction') { $body += ' Zanzibar Quillfeather watched.' }
 if ($isOverview) { $text = $body } else { $text = "TITLE: Session record`n`n$body" }
 $result = @{ type = 'result'; is_error = $false; result = $text; total_cost_usd = 0 } | ConvertTo-Json -Compress
