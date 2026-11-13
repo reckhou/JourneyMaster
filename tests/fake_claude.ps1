@@ -17,7 +17,12 @@ $inRecord = $false
 foreach ($l in ($prompt -replace "`r", '') -split "`n") {
     if ($l -match '^# Record' -or $l -match '^# Entries' -or $l -match '^# New entries') { $inRecord = $true; continue }
     if ($l -match '^# Correction') { break }
-    if ($inRecord -and $l.Trim() -and $l -notmatch '^#') { $lines += ($l -replace '^\d\d:\d\d ', '') }
+    if ($inRecord -and $l.Trim() -and $l -notmatch '^#') {
+        $l = $l -replace '^\d\d:\d\d ', ''
+        # A picture line becomes its marker, as the narrator rules ask.
+        if ($l -match '^\[picture (\d+): ') { $l = "{{picture $($Matches[1])}}" }
+        $lines += $l
+    }
 }
 $body = $lines -join " "
 if ($env:FAKE_CLAUDE_INVENT -eq '1' -and $prompt -notmatch '# Correction') { $body += ' Zanzibar Quillfeather watched.' }

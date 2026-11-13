@@ -216,6 +216,18 @@ JourneyMasterOther = nil
     Check 'gap' (Format-Entry @{ k = 'gap'; what = 'chat lines'; n = 3 } $P) '[3 chat lines here were hidden from the add-on by the game.]'
     True 'reload left out' ($null -eq (Format-Entry @{ k = 'login'; reload = $true } $P))
     True 'screenshot left out' ($null -eq (Format-Entry @{ k = 'shot'; why = 'level' } $P))
+    Check 'first-visit label' (Get-ShotLabel @{ k = 'shot'; why = 'new zone'; z = 'Duskwood' }) 'First visit to Duskwood'
+    Check 'stay label' (Get-ShotLabel @{ k = 'shot'; why = 'zone'; z = 'Duskwood' }) 'Exploring Duskwood'
+    $recShots = @(@{ k = 'shot'; t = $T; why = 'level' }, @{ k = 'shot'; t = $T + 5; why = 'new zone'; z = 'Duskwood' })
+    Check 'pictures in the record, only those with files' ((@(Format-RecordLines $recShots $P @{ "$($T + 5)" = 1 }) | ForEach-Object { $_.Text }) -join '|') '[picture 1: First visit to Duskwood]'
+    Check 'no pictures given: screenshots left out' @(Format-RecordLines $recShots $P).Count 0
+    True 'narrator told how to place pictures' ((Get-NarratorRules) -match '\{\{picture 2\}\}')
+    $pics = @([pscustomobject]@{ N = 1; Path = '../screenshots/a.jpg'; Caption = 'Level up, 21:02' },
+        [pscustomobject]@{ N = 2; Path = '../screenshots/b.jpg'; Caption = 'First visit to Duskwood, 21:10' },
+        [pscustomobject]@{ N = 3; Path = '../screenshots/c.jpg'; Caption = 'Boss defeated, 21:40' })
+    $placed = Add-AccountPictures "He rose a level.`n`n{{picture 1}}`n`nHe walked on. {{ picture 2 }} Duskwood was dark.`n`n{{picture 1}}`n`n{{picture 9}}`n`nThe end." $pics
+    Check 'pictures placed in the account' $placed.Account "He rose a level.`n`n![Level up, 21:02](../screenshots/a.jpg)`n`nHe walked on.`n`n![First visit to Duskwood, 21:10](../screenshots/b.jpg)`n`nDuskwood was dark.`n`nThe end."
+    Check 'the picture not placed is left for the end' (($placed.Rest | ForEach-Object { $_.N }) -join ',') '3'
     foreach ($k in 'said', 'zone', 'enter', 'leave', 'boss', 'loot', 'gear', 'money', 'level', 'skill', 'rep', 'group', 'note', 'kills', 'logloot', 'logout') {
         True "every kind formats: $k" ([string](Format-Entry @{ k = $k; t = $T } $P) -ne '')
     }
@@ -376,6 +388,8 @@ JourneyMasterOther = nil
     True 'session file has a title' ($md -match '^# Session record')
     True 'session file has the header line' ($md -match 'level 26 to 27')
     True 'session file links the screenshot' ($md -match '!\[Level up, \d\d:\d\d\]\(\.\./screenshots/2026-11-12_\d{6}-level\.jpg\)')
+    True 'prompt marks the picture' ($prompt -match '\d\d:\d\d \[picture 1: Level up\]')
+    True 'the placed picture is in the account, not at the end' ($md -notmatch '## Screenshots' -and $md -notmatch '\{\{')
     Check 'records kept beside the summaries' @(Get-ChildItem (Join-Path $charDir 'records') -Filter '*.txt').Count 2
     True 'record holds the chat log lines' ((Read-FileText (Join-Path $charDir 'records/2026-11-12-2.txt')) -match 'from the chat log')
     True 'no key events section in the prompt' ($prompt -notmatch '# Key events')

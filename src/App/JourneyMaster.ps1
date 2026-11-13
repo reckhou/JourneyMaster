@@ -379,6 +379,8 @@ function Get-Players($Entries, [string]$Player) {
     $names
 }
 
+# Copies a session's screenshots into the character's folder. Returns N (picture number, in order), T (the entry's
+# time), Path (relative to the sessions folder) and Caption, for the screenshots whose files were found.
 function Save-Screenshots($c, $Session) {
     $shots = @()
     $dir = Join-Path (Get-CharDir $c) 'screenshots'
@@ -392,8 +394,8 @@ function Save-Screenshots($c, $Session) {
         $name = $t.ToString('yyyy-MM-dd_HHmmss') + '-' + (($why -replace '[^a-zA-Z0-9]+', '-').Trim('-')) + [IO.Path]::GetExtension($src)
         $dest = Join-Path $dir $name
         if (-not (Test-Path -LiteralPath $dest)) { Copy-Item -LiteralPath $src -Destination $dest }
-        $label = switch ($why) { 'level' { 'Level up' } 'boss' { 'Boss defeated' } 'dungeon' { 'Entering a dungeon' } 'new zone' { "First visit to $(Get-Field $e 'z')" } 'zone' { "Exploring $(Get-Field $e 'z')" } default { $why } }
-        $shots += [pscustomobject]@{ Path = "../screenshots/$name"; Caption = "$label, $($t.ToString('HH:mm'))" }
+        $shots += [pscustomobject]@{ N = $shots.Count + 1; T = [string](Get-Field $e 't'); Path = "../screenshots/$name"
+            Caption = "$(Get-ShotLabel $e), $($t.ToString('HH:mm'))" }
     }
     $shots
 }
@@ -409,7 +411,11 @@ function Invoke-SessionSummary($key, $c, $Session) {
     }
     $facts = Get-SessionFacts $Session $c.Level
     $header = Format-RecordHeader ([pscustomobject]@{ Name = $player; Race = $c.Race; Class = $c.Class; Faction = $c.Faction; Sex = $c['Sex'] }) $Session $facts
-    $lines = @(Format-RecordLines $entries $player | ForEach-Object { "$($_.Time) $($_.Text)" })
+    # The screenshots first, so the record can mark where each picture was taken.
+    $shots = @(Save-Screenshots $c $Session)
+    $pictures = @{}
+    foreach ($s in $shots) { $pictures[$s.T] = $s.N }
+    $lines = @(Format-RecordLines $entries $player $pictures | ForEach-Object { "$($_.Time) $($_.Text)" })
     if ($lines.Count -eq 0) { $lines = @('(Nothing was recorded in this session beyond logging in.)') }
     $lore = Get-LoreText $LoreDir $facts.Zones $facts.Subzones
     $rules = Get-NarratorRules
@@ -424,12 +430,13 @@ function Invoke-SessionSummary($key, $c, $Session) {
     }
     if (-not $title) { $title = 'A session on ' + (ConvertFrom-Epoch $Session.First).ToString('d MMMM yyyy') }
     if ($c.Titles.ContainsKey("$($Session.S)")) { $title = [string]$c.Titles["$($Session.S)"] } # renamed in the game before its summary
-    $shots = Save-Screenshots $c $Session
     $sessionsDir = Join-Path (Get-CharDir $c) 'sessions'
     if (-not (Test-Path -LiteralPath $sessionsDir)) { New-Item -ItemType Directory -Force -Path $sessionsDir | Out-Null }
     $file = Get-SessionFileName $sessionsDir $Session.First
     $line = Format-SessionLine ([pscustomobject]@{ Name = $player }) $Session $facts
-    Write-FileAtomic (Join-Path $sessionsDir $file) (Format-SessionMarkdown $title $line ($bodies -join "`n`n") $shots)
+    # The pictures the narrator placed go into the account; the rest go at the end, as before.
+    $placed = Add-AccountPictures ($bodies -join "`n`n") $shots
+    Write-FileAtomic (Join-Path $sessionsDir $file) (Format-SessionMarkdown $title $line $placed.Account $placed.Rest)
     # The exact record the AI was given, kept beside the summary so it can be checked against its source.
     Write-FileAtomic (Join-Path (Join-Path (Get-CharDir $c) 'records') ([IO.Path]::ChangeExtension($file, '.txt'))) ($header + "`n`n" + ($lines -join "`n") + "`n")
     $c.Sessions["$($Session.S)"] = [pscustomobject]@{ File = $file; Title = $title; First = $Session.First; Last = $Session.Last;

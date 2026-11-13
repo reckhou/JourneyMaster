@@ -514,11 +514,28 @@ function Format-Entry($Entry, [string]$Player) {
     $null
 }
 
+# What a screenshot shows, from its entry's reason: "Level up", "First visit to Duskwood".
+function Get-ShotLabel($Entry) {
+    $why = [string](Get-Field $Entry 'why')
+    $z = Get-Field $Entry 'z'
+    switch ($why) {
+        'level' { 'Level up' } 'boss' { 'Boss defeated' } 'dungeon' { 'Entering a dungeon' }
+        'new zone' { "First visit to $z" } 'zone' { "Exploring $z" } default { $why }
+    }
+}
+
 # The record of a session as lines "HH:mm Text". Returns objects Time and Text (Text without the time).
-function Format-RecordLines($Entries, [string]$Player) {
+# Pictures: screenshot entry time (t) -> picture number, for the screenshots the session file will show. Each becomes
+# a line "[picture N: caption]" so the narrator can place the picture in the account (owner's decision, 13 November
+# 2026). Screenshots not in Pictures are left out.
+function Format-RecordLines($Entries, [string]$Player, [hashtable]$Pictures = @{}) {
     $out = New-Object Collections.Generic.List[object]
     foreach ($e in @($Entries)) {
         $text = Format-Entry $e $Player
+        if ((Get-Field $e 'k') -eq 'shot') {
+            $n = $Pictures["$(Get-Field $e 't')"]
+            if ($n) { $text = "[picture $n`: $(Get-ShotLabel $e)]" }
+        }
         if ($text) { $out.Add([pscustomobject]@{ Time = (ConvertFrom-Epoch ([long](Get-Field $e 't'))).ToString('HH:mm'); Text = $text }) }
     }
     $out.ToArray()
@@ -608,11 +625,40 @@ Length and form:
 - The length follows the session: a quiet hour gets a few paragraphs, a long evening of quests and talk gets more. No padding, no summary of the summary.
 - Write in paragraphs of prose, in the order things happened. No headings, no bullet lists, no times of day unless they matter to the story.
 
+Pictures:
+- A line such as "[picture 2: First visit to Duskwood]" means a screenshot was taken at that moment. Place each picture once, as a line of its own between paragraphs, written exactly as {{picture 2}}, after the paragraph that tells of that moment.
+- Do not describe a picture or mention it in the prose: you do not know what it shows.
+
 Reply in exactly this form:
 TITLE: <a chapter title for the session, at most eight words, in sentence case: a capital letter only for the first word and for names>
 
 <the account>
 '@
+}
+
+# The pattern of a picture marker the narrator places in an account: {{picture N}}.
+$PictureMarker = '\{\{\s*picture\s+(\d+)\s*\}\}'
+
+# Puts the session's pictures into its account (Shots: N, Path and Caption): each marker {{picture N}} becomes the
+# picture, between paragraphs. A marker for no known picture, or for one already placed, is dropped. Returns Account
+# and Rest (the pictures the narrator did not place, for the end of the file).
+function Add-AccountPictures([string]$Account, $Shots) {
+    $byN = @{}
+    foreach ($s in @($Shots | Where-Object { $_ })) { $byN["$($s.N)"] = $s }
+    $placed = @{}
+    $text = [regex]::Replace($Account, $PictureMarker, {
+        param($m)
+        $s = $byN[$m.Groups[1].Value]
+        if (-not $s -or $placed.ContainsKey("$($s.N)")) { return '' }
+        $placed["$($s.N)"] = $true
+        "`n`n![$($s.Caption)]($($s.Path -replace '\\', '/'))`n`n"
+    })
+    $text = [regex]::Replace($text, '[ \t]*\n[ \t]*', "`n")
+    $text = [regex]::Replace($text, '\n{3,}', "`n`n").Trim()
+    [pscustomobject]@{
+        Account = $text
+        Rest = @($Shots | Where-Object { $_ -and -not $placed.ContainsKey("$($_.N)") })
+    }
 }
 
 # The user prompt for a session or for one part of a long session.
@@ -1062,7 +1108,7 @@ function Invoke-ClaudeCli([string]$ClaudePath, [string[]]$Arguments, [string]$Wo
 Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Test-Coverage, Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
     Get-Field, Add-EventEntries, Read-EventEntries, Remove-SessionEvents, ConvertFrom-SessionChange, Get-SessionMap, Set-SessionTitle, Get-Sessions, Test-HasInstance, Test-SessionFinished, Get-SessionFacts,
     Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, ConvertFrom-SignalLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
-    Format-Entry, Format-RecordLines, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
+    Format-Entry, Format-RecordLines, Get-ShotLabel, Add-AccountPictures, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
     ConvertFrom-SummaryReply, Test-Grounded, Get-SessionFileName, Format-SessionLine, Format-SessionMarkdown, Read-SessionMarkdown,
     Find-Screenshot, Get-SessionShots, New-Thumbnail, ConvertTo-LuaString, Get-SnapshotText, New-JournalSnapshotLua, Test-JournalSnapshotLua, Get-OverviewRules,
     New-OverviewPrompt, New-JournalExport, Format-CliArgument, Invoke-ClaudeCli
