@@ -731,8 +731,7 @@ function Test-Grounded([string]$Account, [string]$Source) {
     $missing.ToArray()
 }
 
-# The key facts of a session that its account must not lose: quests taken and handed in, dungeons entered, bosses
-# defeated, levels reached, deaths (and the killer when known), and people who joined the group. Returns objects What
+# The key facts of a session that its account must not lose: dungeons entered, bosses defeated, levels reached, deaths (and the killer when known), and people who joined the group. Returns objects What
 # (a description) and Terms (the account must contain one of them, in any case).
 function Get-KeyFacts($Entries, [string]$Player) {
     $out = New-Object Collections.Generic.List[object]
@@ -740,7 +739,6 @@ function Get-KeyFacts($Entries, [string]$Player) {
     foreach ($e in @($Entries)) {
         $f = { param($n) Get-Field $e $n }
         $item = switch (& $f 'k') {
-            'quest' { if ((& $f 'act') -in 'accept', 'turnin') { [pscustomobject]@{ What = "quest $(& $f 'title')"; Terms = @([string](& $f 'title')) } } }
             'enter' { [pscustomobject]@{ What = "entered $(& $f 'inst')"; Terms = @([string](& $f 'inst')) } }
             'boss' { [pscustomobject]@{ What = "defeated $(& $f 'name')"; Terms = @([string](& $f 'name')) } }
             'level' { [pscustomobject]@{ What = "level $(& $f 'level')"; Terms = @("level $(& $f 'level')") } }

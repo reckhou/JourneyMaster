@@ -32,7 +32,7 @@ param(
     [string]$ClaudePath,
     [string]$Model = 'opus',   # default AI model (a claude alias); each character's choice under Settings in the game wins
     [string]$Effort = 'low',   # default effort level, likewise
-    [int]$Attempts = 2,        # AI calls per summary when the first is refused or not grounded
+    [int]$Attempts = 1,        # AI calls per summary (raise it to ask again when a reply is refused or not grounded)
     [int]$FullSessions = 10,   # newest sessions whose summary text goes into the snapshot; older ones by title only
     [int]$MaxPromptChars = 60000, # a record longer than this is summarised in parts
     [int]$OverviewMaxChars = 120000, # above this the overview is updated from the previous one and the new sessions

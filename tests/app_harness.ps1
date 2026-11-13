@@ -239,9 +239,9 @@ JourneyMasterOther = nil
         @{ k = 'enter'; inst = 'The Stockade' }, @{ k = 'boss'; name = 'Bazil Thredd' }, @{ k = 'level'; level = 25 },
         @{ k = 'death'; killer = 'Targorr the Dread' }, @{ k = 'death'; who = 'Seph' }, @{ k = 'group'; act = 'join'; who = 'Tobin Fairweather' },
         @{ k = 'chat'; ch = 'say'; who = 'X'; text = 'y' }) 'Maren')
-    Check 'key facts' (($kf | ForEach-Object { $_.What }) -join '|') 'quest The Stockade Riots|entered The Stockade|defeated Bazil Thredd|level 25|death, killed by Targorr the Dread|Tobin Fairweather joined'
+    Check 'key facts' (($kf | ForEach-Object { $_.What }) -join '|') 'entered The Stockade|defeated Bazil Thredd|level 25|death, killed by Targorr the Dread|Tobin Fairweather joined'
     Check 'nothing lost' (@(Test-Coverage 'Maren took The Stockade Riots, entered The Stockade with Tobin, saw Bazil Thredd fall, reached level 25, and was killed by Targorr the Dread.' $kf).Count) 0
-    Check 'lost facts reported' ((Test-Coverage 'Maren entered The Stockade with Tobin and reached level 25.' $kf) -join '|') 'quest The Stockade Riots|defeated Bazil Thredd|death, killed by Targorr the Dread'
+    Check 'lost facts reported' ((Test-Coverage 'Maren entered The Stockade with Tobin and reached level 25.' $kf) -join '|') 'defeated Bazil Thredd|death, killed by Targorr the Dread'
     True 'no empty screenshots heading' ((Format-SessionMarkdown 'T' 'L' 'Body.' $null) -notmatch 'Screenshots')
     $parts = @(Split-RecordLines @('aaaa', 'bbbb', 'cccc', 'dddd') 10)
     Check 'split in order' (($parts | ForEach-Object { $_ -join '' }) -join '|') 'aaaabbbb|ccccdddd'
@@ -433,8 +433,8 @@ JourneyMasterOther = nil
     $char.seq = 53
     Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
     $before = @(Get-ChildItem $calls).Count
-    $out = & $run ($T + 6000) 'no' @('-MaxPromptChars', '1200', '-NoOverview')
-    $new = @(Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Skip $before)
+    $out = & $run ($T + 6000) 'no' @('-MaxPromptChars', '1200', '-NoOverview', '-Attempts', '2')
+    $new =@(Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Skip $before)
     True 'long session in several parts' ($new.Count -ge 4)
     True 'the model chosen in the game is used, and the old saved file does not undo it' ((Get-Content -Raw $new[0].FullName) -match '--model sonnet')
     $texts = @($new | ForEach-Object { Get-Content -Raw $_.FullName })

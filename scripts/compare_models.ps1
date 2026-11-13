@@ -21,7 +21,7 @@ param(
     [string]$OutDir,
     [string]$LoreDir,
     [string]$ClaudePath,
-    [int]$Attempts = 2
+    [int]$Attempts = 1
 )
 $ErrorActionPreference = 'Stop'
 $Here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
