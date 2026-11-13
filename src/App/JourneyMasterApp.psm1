@@ -616,7 +616,7 @@ TITLE: <a chapter title for the session, at most eight words, in sentence case: 
 }
 
 # The user prompt for a session or for one part of a long session.
-function New-SummaryPrompt([string]$Header, [string[]]$Lines, [string]$Lore, [int]$Part = 1, [int]$Parts = 1, [string]$Previous = '', [string[]]$KeyEvents = @()) {
+function New-SummaryPrompt([string]$Header, [string[]]$Lines, [string]$Lore, [int]$Part = 1, [int]$Parts = 1, [string]$Previous = '') {
     $sb = New-Object Text.StringBuilder
     [void]$sb.AppendLine('# Session facts')
     [void]$sb.AppendLine($Header)
@@ -635,11 +635,6 @@ function New-SummaryPrompt([string]$Header, [string[]]$Lines, [string]$Lore, [in
         [void]$sb.AppendLine()
         [void]$sb.AppendLine('# Lore notes (background for places only)')
         [void]$sb.AppendLine($Lore.Trim())
-    }
-    if (@($KeyEvents).Count -gt 0) {
-        [void]$sb.AppendLine()
-        [void]$sb.AppendLine('# Key events (each must appear in the account)')
-        foreach ($k in $KeyEvents) { [void]$sb.AppendLine("- $k") }
     }
     [void]$sb.AppendLine()
     [void]$sb.AppendLine('# Record')

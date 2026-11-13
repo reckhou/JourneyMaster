@@ -1,12 +1,11 @@
 <#
 .SYNOPSIS
-Summarises one real session with one AI model and effort, using the app's own prompt and checks, and saves the result for comparison.
+Summarises one real session with one AI model and effort, using the app's own prompt, and saves the result for comparison.
 
 .DESCRIPTION
 Reads the permanent record of a character (data\journeys\<character>\events), builds the record, the narrator rules and the
-prompt exactly as the app does, calls the claude command with the given model and effort, and checks the reply the same way
-the app does (names not in the record, key facts left out, talk about sources). It writes <OutDir>\<Label>.json (timings,
-cost, checks) and <Label>.md (the title and the account). It never changes the real journal, state or session files.
+prompt exactly as the app does and calls the claude command once with the given model and effort. It writes
+<OutDir>\<Label>.json (timing, cost, word count) and <Label>.md (the title and the account). It never changes the real journal, state or session files.
 Example:
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\compare_models.ps1 -Label opus-low -Model opus -Effort low
 Kept ASCII-only: Windows PowerShell 5.1 reads a script without a byte-order mark as ANSI.
@@ -20,8 +19,7 @@ param(
     [string]$DataDir,
     [string]$OutDir,
     [string]$LoreDir,
-    [string]$ClaudePath,
-    [int]$Attempts = 1
+    [string]$ClaudePath
 )
 $ErrorActionPreference = 'Stop'
 $Here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -55,49 +53,28 @@ $header = Format-RecordHeader ([pscustomobject]@{ Name = $player; Race = $c.Race
 $lines = @(Format-RecordLines $sess.Entries $player | ForEach-Object { "$($_.Time) $($_.Text)" })
 $lore = Get-LoreText $LoreDir $facts.Zones $facts.Subzones
 $rules = Get-NarratorRules
-$keyFacts = @(Get-KeyFacts $sess.Entries $player)
-$prompt = New-SummaryPrompt $header $lines $lore 1 1 '' @($keyFacts | ForEach-Object { $_.What })
-$source = $header + "`n" + ($lines -join "`n") + "`n" + $lore + "`n$player"
+$prompt = New-SummaryPrompt $header $lines $lore
 $rulesFile = Join-Path $WorkDir 'rules.md'
 [IO.File]::WriteAllText($rulesFile, $rules, $Utf8)
 
-$best = $null
-$attemptLog = @()
-$ask = $prompt
 $sw = [Diagnostics.Stopwatch]::StartNew()
-for ($a = 1; $a -le $Attempts; $a++) {
-    $t0 = $sw.Elapsed.TotalSeconds
-    $argList = @('-p', '--model', $Model, '--effort', $Effort, '--output-format', 'json', '--safe-mode', '--tools', '', '--system-prompt-file', $rulesFile)
-    $r = Invoke-ClaudeCli -ClaudePath $ClaudePath -Arguments $argList -WorkDir $WorkDir -Prompt $ask
-    $secs = [Math]::Round($sw.Elapsed.TotalSeconds - $t0, 1)
-    if ($r.is_error -or -not $r.result) {
-        Write-Host "[$Label] attempt $a failed: $($r.result)" -ForegroundColor Yellow
-        $attemptLog += [pscustomobject]@{ Attempt = $a; Seconds = $secs; Error = [string]$r.result }
-        continue
-    }
+$argList = @('-p', '--model', $Model, '--effort', $Effort, '--output-format', 'json', '--safe-mode', '--tools', '', '--system-prompt-file', $rulesFile)
+$r = Invoke-ClaudeCli -ClaudePath $ClaudePath -Arguments $argList -WorkDir $WorkDir -Prompt $prompt
+$secs = [Math]::Round($sw.Elapsed.TotalSeconds, 1)
+$reply = $null
+if ($r.is_error -or -not $r.result) {
+    Write-Host "[$Label] the AI call failed: $($r.result)" -ForegroundColor Yellow
+} else {
     $reply = ConvertFrom-SummaryReply ([string]$r.result)
-    $missing = @(Test-Grounded ($reply.Title + "`n" + $reply.Body) $source)
-    $lost = @(Test-Coverage ($reply.Title + "`n" + $reply.Body) $keyFacts)
-    $meta = @(Test-SourceMentions $reply.Body)
-    $score = $missing.Count + $lost.Count + $meta.Count
-    $cost = if ($r.PSObject.Properties['total_cost_usd']) { [double]$r.total_cost_usd } else { $null }
-    $models = if ($r.PSObject.Properties['modelUsage']) { ($r.modelUsage.PSObject.Properties.Name -join ', ') } else { '' }
-    $attemptLog += [pscustomobject]@{ Attempt = $a; Seconds = $secs; CostUsd = $cost; Models = $models; Score = $score; Missing = $missing; Lost = $lost; Meta = $meta }
-    Write-Host "[$Label] attempt $a : $secs s, cost $cost, not in record: $($missing -join ', '); left out: $($lost -join '; '); sources: $($meta -join ', ')" -ForegroundColor Cyan
-    if (-not $best -or $score -lt $best.Score) { $best = [pscustomobject]@{ Title = $reply.Title; Body = $reply.Body; Score = $score; Missing = $missing; Lost = $lost; Meta = $meta } }
-    if ($score -eq 0) { break }
-    $fix = @()
-    if ($meta.Count -gt 0) { $fix += 'Your previous reply talked about its sources (' + ($meta -join ', ') + '). Write only about the events, as a novel.' }
-    if ($missing.Count -gt 0) { $fix += 'Your previous reply named things the record does not hold: ' + ($missing -join ', ') + '. Use only what the record holds.' }
-    if ($lost.Count -gt 0) { $fix += 'Your previous reply left out these events, which must be in the account: ' + ($lost -join '; ') + '.' }
-    $ask = $prompt + "`n`n# Correction`n" + ($fix -join "`n") + "`nWrite the account again."
 }
+$cost = if ($r.PSObject.Properties['total_cost_usd']) { [double]$r.total_cost_usd } else { $null }
+$models = if ($r.PSObject.Properties['modelUsage']) { ($r.modelUsage.PSObject.Properties.Name -join ', ') } else { '' }
 $summary = [pscustomobject]@{
     Label = $Label; Model = $Model; Effort = $Effort; Character = $Character; Session = $Session
-    PromptChars = $prompt.Length; RecordLines = $lines.Count; TotalSeconds = [Math]::Round($sw.Elapsed.TotalSeconds, 1)
-    Attempts = $attemptLog; Words = $(if ($best) { ($best.Body -split '\s+').Count } else { 0 })
-    Title = $(if ($best) { $best.Title } else { '' })
+    PromptChars = $prompt.Length; RecordLines = $lines.Count; Seconds = $secs; CostUsd = $cost; Models = $models
+    Words = $(if ($reply) { ($reply.Body -split '\s+').Count } else { 0 })
+    Title = $(if ($reply) { $reply.Title } else { '' })
 }
 [IO.File]::WriteAllText((Join-Path $OutDir "$Label.json"), ($summary | ConvertTo-Json -Depth 6), $Utf8)
-if ($best) { [IO.File]::WriteAllText((Join-Path $OutDir "$Label.md"), "# $($best.Title)`n`n$($best.Body)`n", $Utf8) }
-Write-Host "[$Label] done in $($summary.TotalSeconds) s, $($summary.Words) words." -ForegroundColor Green
+if ($reply) { [IO.File]::WriteAllText((Join-Path $OutDir "$Label.md"), "# $($reply.Title)`n`n$($reply.Body)`n", $Utf8) }
+Write-Host "[$Label] done in $secs s, cost $cost, $($summary.Words) words." -ForegroundColor Green

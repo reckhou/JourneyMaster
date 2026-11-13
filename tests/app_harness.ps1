@@ -378,7 +378,7 @@ JourneyMasterOther = nil
     True 'session file links the screenshot' ($md -match '!\[Level up, \d\d:\d\d\]\(\.\./screenshots/2026-11-12_\d{6}-level\.jpg\)')
     Check 'records kept beside the summaries' @(Get-ChildItem (Join-Path $charDir 'records') -Filter '*.txt').Count 2
     True 'record holds the chat log lines' ((Read-FileText (Join-Path $charDir 'records/2026-11-12-2.txt')) -match 'from the chat log')
-    True 'key events listed in the prompt' ($prompt -match '# Key events \(each must appear in the account\)' -and $prompt -match '- entered The Stockade')
+    True 'no key events section in the prompt' ($prompt -notmatch '# Key events')
     Check 'screenshot copied' @(Get-ChildItem (Join-Path $charDir 'screenshots')).Count 1
     True 'overview written' (Test-Path (Join-Path $charDir 'overview.md'))
     $journal = Read-FileText (Join-Path $charDir 'journal.md')
@@ -433,17 +433,16 @@ JourneyMasterOther = nil
     $char.seq = 53
     Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
     $before = @(Get-ChildItem $calls).Count
-    $out = & $run ($T + 6000) 'no' @('-MaxPromptChars', '1200', '-NoOverview', '-Attempts', '2')
+    $out = & $run ($T + 6000) 'no' @('-MaxPromptChars', '1200', '-NoOverview')
     $new =@(Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Skip $before)
     True 'long session in several parts' ($new.Count -ge 4)
     True 'the model chosen in the game is used, and the old saved file does not undo it' ((Get-Content -Raw $new[0].FullName) -match '--model sonnet')
     $texts = @($new | ForEach-Object { Get-Content -Raw $_.FullName })
     True 'a later part carries the account so far' (@($texts | Where-Object { $_ -match 'this is piece 2' -and $_ -match 'The account so far' }).Count -ge 1)
-    True 'invented name asked for again' (@($texts | Where-Object { $_ -match '# Correction' -and $_ -match 'Zanzibar' }).Count -ge 1)
+    True 'a reply is not asked for again' (@($texts | Where-Object { $_ -match '# Correction' }).Count -eq 0)
     $files = @(Get-ChildItem (Join-Path $charDir 'sessions') | Sort-Object Name)
     Check 'third session file' $files.Count 3
     $md3 = Read-FileText $files[2].FullName
-    True 'final account invents nothing' ($md3 -notmatch 'Zanzibar')
     True 'parts joined in order' ($md3.IndexOf('Line number 0 ') -lt $md3.LastIndexOf('Line number'))
     $state = (Read-FileText (Join-Path $data 'state.json')) | ConvertFrom-Json
     Check 'state records the parts' ([int]$state.Characters.'Baldrake Cavendell-LivingFlame'.Sessions.'3'.Parts -gt 1) $true

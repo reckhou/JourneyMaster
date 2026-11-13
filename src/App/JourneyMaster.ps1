@@ -32,7 +32,6 @@ param(
     [string]$ClaudePath,
     [string]$Model = 'opus',   # default AI model (a claude alias); each character's choice under Settings in the game wins
     [string]$Effort = 'low',   # default effort level, likewise
-    [int]$Attempts = 1,        # AI calls per summary (raise it to ask again when a reply is refused or not grounded)
     [int]$FullSessions = 10,   # newest sessions whose summary text goes into the snapshot; older ones by title only
     [int]$MaxPromptChars = 60000, # a record longer than this is summarised in parts
     [int]$OverviewMaxChars = 120000, # above this the overview is updated from the previous one and the new sessions
@@ -77,7 +76,7 @@ function Test-GameRunning {
 
 # State ------------------------------------------------------------------------------------------------------------------
 # Characters: key -> LastSeq (newest entry stored), Name, Realm, Race, Class, Faction, Level, Folder, and Sessions
-# (session number -> File, Title, First, Last, Zones, LevelFrom, LevelTo, Ungrounded). Revision: the snapshot's.
+# (session number -> File, Title, First, Last, Zones, LevelFrom, LevelTo, Parts). Revision: the snapshot's.
 # The player's changes in the game, each keyed by session number: Titles (own titles), Deleted (time of the delete),
 # SeenTitles and SeenDeleted (time of the newest rename or delete handled, so neither is applied twice).
 $StateMaps = 'Sessions', 'Titles', 'Deleted', 'SeenTitles', 'SeenDeleted'
@@ -367,31 +366,11 @@ function Invoke-Model([string]$Rules, [string]$Prompt) {
     $r
 }
 
-# Asks for an account that holds only what the source holds and loses none of the key facts. A reply that names things
-# not in the source, or leaves out a key fact, is asked for again with those listed; if the last attempt still falls
-# short, the best reply is kept and what it got wrong is reported.
-function Get-GroundedReply([string]$Rules, [string]$Prompt, [string]$Source, $Facts = @(), [bool]$CheckTitle = $true) {
-    $best = $null
-    $ask = $Prompt
-    for ($a = 1; $a -le $Attempts; $a++) {
-        $r = Invoke-Model $Rules $ask
-        if ($r.is_error -or -not $r.result) { Say "the AI call failed: $($r.result)" 'Yellow'; continue }
-        $reply = ConvertFrom-SummaryReply ([string]$r.result)
-        $checked = if ($CheckTitle) { $reply.Title + "`n" + $reply.Body } else { $reply.Body } # later parts' titles are thrown away
-        $missing = @(Test-Grounded $checked $Source)
-        $lost = @(Test-Coverage ($reply.Title + "`n" + $reply.Body) $Facts)
-        $meta = @(Test-SourceMentions $reply.Body)
-        $score = $missing.Count + $lost.Count + $meta.Count
-        if (-not $best -or $score -lt $best.Score) { $best = [pscustomobject]@{ Title = $reply.Title; Body = $reply.Body; Missing = $missing; Lost = $lost; Meta = $meta; Score = $score } }
-        if ($score -eq 0) { break }
-        Dbg "not in the record: $($missing -join ', '); left out: $($lost -join ', '); talks about its sources: $($meta -join ', ')"
-        $fix = @()
-        if ($meta.Count -gt 0) { $fix += 'Your previous reply talked about its sources (' + ($meta -join ', ') + '). Write only about the events, as a novel.' }
-        if ($missing.Count -gt 0) { $fix += 'Your previous reply named things the record does not hold: ' + ($missing -join ', ') + '. Use only what the record holds.' }
-        if ($lost.Count -gt 0) { $fix += 'Your previous reply left out these events, which must be in the account: ' + ($lost -join '; ') + '.' }
-        $ask = $Prompt + "`n`n# Correction`n" + ($fix -join "`n") + "`nWrite the account again."
-    }
-    $best
+# Asks the AI once for an account and returns its Title and Body, or $null when the call fails. The reply is not checked.
+function Get-Reply([string]$Rules, [string]$Prompt) {
+    $r = Invoke-Model $Rules $Prompt
+    if ($r.is_error -or -not $r.result) { Say "the AI call failed: $($r.result)" 'Yellow'; return $null }
+    ConvertFrom-SummaryReply ([string]$r.result)
 }
 
 function Get-Players($Entries, [string]$Player) {
@@ -435,21 +414,13 @@ function Invoke-SessionSummary($key, $c, $Session) {
     $lore = Get-LoreText $LoreDir $facts.Zones $facts.Subzones
     $rules = Get-NarratorRules
     $parts = @(Split-RecordLines $lines $MaxPromptChars)
-    $keyFacts = @(Get-KeyFacts $entries $player)
-    $title = ''; $bodies = @(); $missing = @(); $lost = @(); $meta = @()
+    $title = ''; $bodies = @()
     for ($p = 0; $p -lt $parts.Count; $p++) {
-        $partText = $parts[$p] -join "`n"
-        # The key facts this part holds, so a long session summarised in parts loses none of them.
-        $partFacts = @($keyFacts | Where-Object { $t = $_.Terms[0]; $t -and $partText.ToLowerInvariant().Contains($t.ToLowerInvariant()) })
-        $prompt = New-SummaryPrompt $header $parts[$p] $lore ($p + 1) $parts.Count ($bodies -join "`n`n") @($partFacts | ForEach-Object { $_.What })
-        $source = $header + "`n" + $partText + "`n" + $lore + "`n" + ($bodies -join "`n") + "`n$player"
-        $reply = Get-GroundedReply $rules $prompt $source $partFacts ($p -eq 0)
+        $prompt = New-SummaryPrompt $header $parts[$p] $lore ($p + 1) $parts.Count ($bodies -join "`n`n")
+        $reply = Get-Reply $rules $prompt
         if (-not $reply) { return $false }
         if ($p -eq 0) { $title = $reply.Title }
         $bodies += $reply.Body
-        $missing += $reply.Missing
-        $lost += $reply.Lost
-        $meta += $reply.Meta
     }
     if (-not $title) { $title = 'A session on ' + (ConvertFrom-Epoch $Session.First).ToString('d MMMM yyyy') }
     if ($c.Titles.ContainsKey("$($Session.S)")) { $title = [string]$c.Titles["$($Session.S)"] } # renamed in the game before its summary
@@ -462,10 +433,7 @@ function Invoke-SessionSummary($key, $c, $Session) {
     # The exact record the AI was given, kept beside the summary so it can be checked against its source.
     Write-FileAtomic (Join-Path (Join-Path (Get-CharDir $c) 'records') ([IO.Path]::ChangeExtension($file, '.txt'))) ($header + "`n`n" + ($lines -join "`n") + "`n")
     $c.Sessions["$($Session.S)"] = [pscustomobject]@{ File = $file; Title = $title; First = $Session.First; Last = $Session.Last;
-        Zones = @($facts.Zones); LevelFrom = $facts.LevelFrom; LevelTo = $facts.LevelTo; Parts = $parts.Count;
-        Ungrounded = @($missing | Select-Object -Unique); Lost = @($lost | Select-Object -Unique); SourceMentions = @($meta | Select-Object -Unique) }
-    if ($missing.Count -gt 0) { Say "$key`: '$title' names things not in the record: $(@($missing | Select-Object -Unique) -join ', ')" 'Yellow' }
-    if ($lost.Count -gt 0) { Say "$key`: '$title' leaves out: $(@($lost | Select-Object -Unique) -join '; ')" 'Yellow' }
+        Zones = @($facts.Zones); LevelFrom = $facts.LevelFrom; LevelTo = $facts.LevelTo; Parts = $parts.Count }
     Say "$key`: summarised session $($Session.S) as sessions\$file$(if ($parts.Count -gt 1) { " ($($parts.Count) parts)" })" 'Green'
     $true
 }
@@ -529,8 +497,7 @@ function Update-Overview($key) {
         $since = [long]$c['OverviewUpTo']
         $use = @($docs | Where-Object { [long]$_.S.Last -gt $since })
     }
-    $source = "$($c.Name)`n" + $previous + "`n" + (($use | ForEach-Object { "$($_.Title) $($_.Line) $($_.Body)" }) -join "`n")
-    $reply = Get-GroundedReply (Get-OverviewRules) (New-OverviewPrompt ([string]$c.Name) $use $previous) $source
+    $reply = Get-Reply (Get-OverviewRules) (New-OverviewPrompt ([string]$c.Name) $use $previous)
     if (-not $reply) { return }
     $text = (($reply.Title, $reply.Body) | Where-Object { $_ }) -join "`n`n"
     $from = (ConvertFrom-Epoch $docs[0].S.First).ToString('d MMMM yyyy')
