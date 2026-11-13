@@ -1,0 +1,20 @@
+## Interface: 16001
+## Title: JourneyMaster
+## IconTexture: Interface\Icons\INV_Misc_Book_09
+## Notes: Records your character's journey and shows the AI-written summary of each play session. Needs the JourneyMaster app on your PC for the summaries.
+## Author: Shane Hou
+## Category: Roleplay
+## Version: 0.1.0
+## SavedVariables: JourneyMasterDB
+## AddonCompartmentFunc: JourneyMaster_OnCompartmentClick
+## AddonCompartmentFuncOnEnter: JourneyMaster_OnCompartmentEnter
+## AddonCompartmentFuncOnLeave: JourneyMaster_OnCompartmentLeave
+
+Core.lua
+JournalSnapshot.lua
+Recorder.lua
+Journal.lua
+UI.lua
+Window.lua
+Minimap.lua
+JourneyMaster.lua
