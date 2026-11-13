@@ -116,6 +116,12 @@ GetMoney = function() return W.money end
 GetRealZoneText = function() return W.zone end
 GetSubZoneText = function() return W.sub end
 IsInInstance = function() return W.instance[1], W.instance[2] end
+-- The player's map: W.mapID, and W.maps[id] = { name, mapType, parentMapID }. Without W.maps the calls answer nothing,
+-- so the add-on falls back to the game's zone name (the tests that do not care about maps).
+C_Map = {
+    GetBestMapForUnit = function() return W.maps and W.mapID end,
+    GetMapInfo = function(id) return W.maps and W.maps[id] end,
+}
 GetInstanceInfo = function() return W.name, W.instance[2] end
 GetNumGroupMembers = function() return #W.group > 0 and #W.group + 1 or 0 end
 IsInRaid = function() return false end

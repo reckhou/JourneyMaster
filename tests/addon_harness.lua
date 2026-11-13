@@ -84,6 +84,58 @@ eq(W.shots, 3, "level-up screenshot once landed")
 W.zone = "Elwynn Forest"
 fire("ZONE_CHANGED_NEW_AREA")
 
+-- Interior names are ignored: a step into a building does not end the wait for the zone around it.
+W.maps = {
+    [10] = { name = "Duskwood", mapType = 3, parentMapID = 12 },
+    [11] = { name = "Scarlet Raven Tavern", mapType = 5, parentMapID = 10 }, -- a micro map of its own
+    [12] = { name = "Eastern Kingdoms", mapType = 2, parentMapID = 0 },
+}
+W.zone, W.sub, W.mapID = "Duskwood", "Darkshire", 10
+fire("ZONE_CHANGED_NEW_AREA")
+W.RunTimers()
+tick(100)
+W.zone, W.sub, W.mapID = "Scarlet Raven Tavern", "", 11 -- inside, on a map of its own
+fire("ZONE_CHANGED_NEW_AREA")
+W.RunTimers()
+tick(100)
+W.zone, W.sub, W.mapID = "Darkshire Town Hall", "", 10 -- inside, on the zone's own map
+fire("ZONE_CHANGED_NEW_AREA")
+W.RunTimers()
+tick(95)
+W.RunTimers()
+eq(W.shots, 3, "the wait for Duskwood is not over yet")
+tick(10)
+W.RunTimers() W.RunTimers()
+eq(W.shots, 4, "interior names do not end the wait: first visit to Duskwood after 5 minutes")
+eq(last().z, "Duskwood", "the screenshot names the outdoor zone, not the building")
+check(c.zonesSeen["Duskwood"] and not c.zonesSeen["Darkshire Town Hall"] and not c.zonesSeen["Scarlet Raven Tavern"],
+    "the outdoor zone is the one counted as seen")
+-- Moving between outdoor places of one zone (subzones) never ended the wait either, and leaving the zone still does.
+W.zone, W.sub, W.mapID = "Redridge Mountains", "Lakeshire", 20
+W.maps[20] = { name = "Redridge Mountains", mapType = 3, parentMapID = 12 }
+fire("ZONE_CHANGED_NEW_AREA")
+W.RunTimers()
+tick(100)
+W.sub = "Stonewatch Falls"
+fire("ZONE_CHANGED")
+W.zone, W.sub, W.mapID = "Duskwood", "Darkshire", 10
+fire("ZONE_CHANGED_NEW_AREA")
+tick(300)
+W.RunTimers() W.RunTimers()
+eq(W.shots, 4, "leaving the zone within 5 minutes still takes no screenshot")
+-- A dungeon keeps its own name (its own first-visit screenshot is the dungeon one, not its entrance's zone).
+W.maps[30] = { name = "The Stockade", mapType = 4, parentMapID = 40 }
+W.maps[40] = { name = "Stormwind City", mapType = 3, parentMapID = 12 }
+W.instance = { true, "party" }
+W.zone, W.sub, W.mapID = "The Stockade", "", 30
+eq(ns.Recorder.StayZone(), "The Stockade", "a dungeon keeps its own name")
+W.instance = { false, "none" }
+eq(ns.Recorder.StayZone(), "Stormwind City", "outside an instance, a dungeon-type map is followed up to its zone")
+W.maps, W.mapID = nil, nil
+W.zone, W.sub = "Elwynn Forest", ""
+eq(ns.Recorder.StayZone(), "Elwynn Forest", "without map answers, the game's zone name is used")
+fire("ZONE_CHANGED_NEW_AREA")
+
 -- Chat -------------------------------------------------------------------------------------------------------------
 tick()
 fire("CHAT_MSG_SAY", "Does anyone know where the Bowyer is round here?", "Shelly Whitemoon", "", "", "Shelly Whitemoon", "", 0, 0, "", 0, 1, "Player-1-AAA")

@@ -92,6 +92,34 @@ local function where()
     return text(call(GetRealZoneText), 80), text(call(GetSubZoneText), 80) or ""
 end
 
+-- The outdoor zone the player is in, for the first-visit screenshot (owner's decision, 13 November 2026: ignore interior
+-- names). Inside an inn or a town hall the game's zone name is the building's ("Scarlet Raven Tavern"), which would
+-- end the wait for the zone around it. The player's map says which zone it is: a building on the zone's own map gives
+-- that zone's name, and a map of its own (a micro map) is followed up to its parent zone. Dungeons and raids keep their
+-- own name. Without the map calls, or when they answer nothing, this is the game's zone name, as before.
+-- (Outdoor places on one map, such as Darkshire in Duskwood, are subzones; they never changed the zone.)
+local ZONE_MAP_TYPE = (Enum and Enum.UIMapType and Enum.UIMapType.Zone) or 3
+
+function Rec.StayZone()
+    local z = where()
+    if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetMapInfo) then return z end
+    local _, itype = call(IsInInstance)
+    if itype == "party" or itype == "raid" then return z end
+    local id = call(C_Map.GetBestMapForUnit, "player")
+    for _ = 1, 6 do
+        if type(id) ~= "number" or id == 0 then break end
+        local info = call(C_Map.GetMapInfo, id)
+        if type(info) ~= "table" then break end
+        local parent = info.parentMapID
+        if type(info.mapType) == "number" and info.mapType > ZONE_MAP_TYPE and type(parent) == "number" and parent ~= 0 then
+            id = parent -- a micro map, an interior, a dungeon map: its zone is above it
+        else
+            return text(info.name, 80) or z
+        end
+    end
+    return z
+end
+
 local function short(name)
     if type(name) ~= "string" or not Readable(name) or name == "" then return nil end
     if Ambiguate then
@@ -128,7 +156,7 @@ end
 
 local SHOT_RETRY, SHOT_TRIES = 5, 24 -- while flying, try again every 5 seconds for up to 2 minutes, then give up
 
-function Rec.Shot(why)
+function Rec.Shot(why, zone)
     if not Rec.Setting("screenshots") or type(Screenshot) ~= "function" then return end
     local tries = 0
     local take
@@ -138,7 +166,12 @@ function Rec.Shot(why)
             if tries < SHOT_TRIES and C_Timer and C_Timer.After then C_Timer.After(SHOT_RETRY, Rec.Guard("screenshot", take)) end
             return
         end
-        if Rec.Try("screenshot", Screenshot) then Add({ k = "shot", why = why }) end
+        if Rec.Try("screenshot", Screenshot) then
+            -- A first-visit screenshot names the outdoor zone, even when the player has stepped into a building.
+            local e = { k = "shot", why = why }
+            if zone then e.z, e.sz = zone, (select(2, where())) end
+            Add(e)
+        end
     end
     if C_Timer and C_Timer.After then C_Timer.After(1.5, Rec.Guard("screenshot", take)) else Rec.Try("screenshot", take) end
 end
@@ -211,7 +244,7 @@ local zoneWait -- { z = zone, since = time, flew = time last seen flying, token 
 
 local function zoneShotDue(token)
     if not zoneWait or zoneWait.token ~= token then return end -- left the zone, or a newer wait began
-    local z = where()
+    local z = Rec.StayZone()
     if z ~= zoneWait.z then zoneWait = nil return end
     local t = now()
     if Rec.Flying() then zoneWait.flew = t end
@@ -221,7 +254,7 @@ local function zoneShotDue(token)
     end
     zoneWait = nil
     char.zonesSeen[z] = true
-    Rec.Shot("new zone")
+    Rec.Shot("new zone", z)
 end
 
 function Rec.CheckZone()
@@ -229,10 +262,12 @@ function Rec.CheckZone()
     if not z then return end
     local e = Core.AddZone(char, z, sz, now())
     if e and ns.Window and ns.Window.OnNewEntry then ns.Window.OnNewEntry(e) end
-    if zoneWait and zoneWait.z ~= z then zoneWait = nil end
-    if not char.zonesSeen[z] and not zoneWait and Rec.Setting("screenshots") and C_Timer and C_Timer.After then
+    local stay = Rec.StayZone() -- the outdoor zone: a step into a building does not end the wait
+    if not stay then return end
+    if zoneWait and zoneWait.z ~= stay then zoneWait = nil end
+    if not char.zonesSeen[stay] and not zoneWait and Rec.Setting("screenshots") and C_Timer and C_Timer.After then
         local token = {}
-        zoneWait = { z = z, since = now(), flew = Rec.Flying() and now() or nil, token = token }
+        zoneWait = { z = stay, since = now(), flew = Rec.Flying() and now() or nil, token = token }
         C_Timer.After(Rec.ZONE_POLL, Rec.Guard("the zone screenshot", function() zoneShotDue(token) end))
     end
 end
