@@ -338,7 +338,7 @@ JourneyMasterOther = nil
         @{ i = 10; s = 2; t = $T + 600; k = 'leave'; inst = 'The Stockade'; itype = 'party'; z = 'Stormwind City' },
         @{ i = 11; s = 2; t = $T + 700; k = 'logout'; z = 'Stormwind City' }
     )
-    $char = [ordered]@{ name = 'Baldrake Cavendell'; realm = 'Living Flame'; race = 'Human'; class = 'Warlock'; faction = 'Alliance'; level = 27; seq = 11; dropped = 0; entries = @($session1 + $session2) }
+    $char = [ordered]@{ name = 'Baldrake Cavendell'; realm = 'Living Flame'; race = 'Human'; class = 'Warlock'; faction = 'Alliance'; level = 27; seq = 11; dropped = 0; entries = @($session1 + $session2); settings = @{ aiModel = 'opus'; aiEffort = 'low' } }
     Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
     $run = { param([long]$Now, [string]$Running = 'no', [string[]]$More = @())
         & powershell -NoProfile -ExecutionPolicy Bypass -File $App -WowDir $wow -DataDir $data -ClaudePath $Fake -GameRunning $Running -Now $Now -LoreDir (Join-Path $tmp 'nolore') -NoExplorer @More 2>&1 | Out-String }
@@ -351,6 +351,8 @@ JourneyMasterOther = nil
     Check 'one session summarised while the game runs' @(Get-ChildItem (Join-Path $charDir 'sessions')).Count 1
     $firstCalls = @(Get-ChildItem $calls).Count
     Check 'one summary call and one overview call' $firstCalls 2
+    $firstCall = Get-Content -Raw (Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -First 1).FullName
+    True 'Opus and low effort by default' ($firstCall -match '--model opus' -and $firstCall -match '--effort low')
     $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
     True 'snapshot written' ($snap -match 'revision = 1,')
     True 'snapshot confirms the stored entries' ($snap -match 'confirmed = 11,')
@@ -399,7 +401,9 @@ JourneyMasterOther = nil
         ($stampNow + 'JMP:9-1:00001:' + ('.' * 186)),
         ($stampNow + 'Mallory says: JMS:9-2:OPEN:1:Baldrake Cavendell-LivingFlame'),
         ($stampNow + 'JMS:9-3:END:3:Baldrake Cavendell-LivingFlame'),
-        ($stampNow + 'JMS:9-4:OPEN:1:Nobody-Realm')
+        ($stampNow + 'JMS:9-4:OPEN:1:Nobody-Realm'),
+        ($stampNow + 'JMS:9-5:SET:model=sonnet:Baldrake Cavendell-LivingFlame'),
+        ($stampNow + 'JMS:9-6:SET:effort=turbo:Baldrake Cavendell-LivingFlame')
     )
     [IO.File]::AppendAllText($gameLog, ($added -join "`r`n") + "`r`n", $Utf8)
     $out = & $run ($T + 2660) 'no' @('-SignalsFrom', "$from")
@@ -407,6 +411,8 @@ JourneyMasterOther = nil
     True 'a player saying a signal opens nothing' ($out -notmatch 'opening .*Screenshots, as asked')
     True 'finish signal noted' ($out -match 'session 3 finished in the game')
     True 'unknown character reported' ($out -match 'Nobody-Realm, a character the app has no record of')
+    True 'model change from the game taken' ($out -match 'AI model set to sonnet')
+    True 'unknown effort refused' ($out -match 'unknown AI setting effort=turbo')
     $out = & $run ($T + 2670) 'no'
     True 'old signals not acted on by a later run' ($out -notmatch 'as asked in the game')
 
@@ -430,6 +436,7 @@ JourneyMasterOther = nil
     $out = & $run ($T + 6000) 'no' @('-MaxPromptChars', '1200', '-NoOverview')
     $new = @(Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Skip $before)
     True 'long session in several parts' ($new.Count -ge 4)
+    True 'the model chosen in the game is used, and the old saved file does not undo it' ((Get-Content -Raw $new[0].FullName) -match '--model sonnet')
     $texts = @($new | ForEach-Object { Get-Content -Raw $_.FullName })
     True 'a later part carries the account so far' (@($texts | Where-Object { $_ -match 'this is piece 2' -and $_ -match 'The account so far' }).Count -ge 1)
     True 'invented name asked for again' (@($texts | Where-Object { $_ -match '# Correction' -and $_ -match 'Zanzibar' }).Count -ge 1)

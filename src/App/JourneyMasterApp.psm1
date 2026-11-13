@@ -262,14 +262,17 @@ function ConvertFrom-ChatLogLine([string]$Line, [long]$Near) {
     $null
 }
 
-# A signal from the add-on in a chat log line ("JMS:<id>:<KIND>:<session>:<character key>", see Signal.lua): Id, Kind,
-# S and Key, or $null for any other line. Anchored to the start of the line's text, so a player who says "JMS:..." in
+# A signal from the add-on in a chat log line ("JMS:<id>:<KIND>:<arg>:<character key>", see Signal.lua): Id, Kind, Arg
+# (a session number, or "field=value" for SET), S (the arg as a number, 0 when it is not one) and Key, or $null for any
+# other line. Anchored to the start of the line's text, so a player who says "JMS:..." in
 # chat (logged as "<name> says: JMS:...") cannot send one.
-$SignalLine = [regex]'^(?:\d{1,2}/\d{1,2} \d{2}:\d{2}:\d{2}\.\d{3}\s+)?JMS:([^:]+):([A-Z]+):(\d+):(.+)$'
+$SignalLine = [regex]'^(?:\d{1,2}/\d{1,2} \d{2}:\d{2}:\d{2}\.\d{3}\s+)?JMS:([^:]+):([A-Z]+):([^:]*):(.+)$'
 function ConvertFrom-SignalLine([string]$Line) {
     $m = $SignalLine.Match($Line.TrimEnd("`r"))
     if (-not $m.Success) { return $null }
-    [pscustomobject]@{ Id = $m.Groups[1].Value; Kind = $m.Groups[2].Value; S = [long]$m.Groups[3].Value; Key = $m.Groups[4].Value }
+    $arg = $m.Groups[3].Value
+    [pscustomobject]@{ Id = $m.Groups[1].Value; Kind = $m.Groups[2].Value; Arg = $arg
+        S = $(if ($arg -match '^\d+$') { [long]$arg } else { 0 }); Key = $m.Groups[4].Value }
 }
 
 # The chat log lines that fall in any of the windows (a few seconds of slack either side), parsed. Lines are matched
@@ -514,14 +517,17 @@ function Get-LoreText([string]$LoreDir, $Zones, $Subzones, [int]$MaxChars = 1200
 
 # The narrator ------------------------------------------------------------------------------------------------------------
 
-# The narrator's rules (the system prompt), the same for every character. Plan section 5, "The neutral voice".
+# The narrator's rules (the system prompt), the same for every character: a novel's voice (owner's decision,
+# 13 November 2026, replacing the plan's plain chronicle), held to the record by the faithfulness rules.
 function Get-NarratorRules {
 @'
-You write one entry of a chronicle: the account of one play session of a character in World of Warcraft (the WoW: Forever server). You are given the session's record, written by an add-on and in places filled from the game's chat log.
+You write one chapter of a novel: the story of one play session of a character in World of Warcraft (the WoW: Forever server). You are given the session's record, written by an add-on and in places filled from the game's chat log.
 
-Voice:
-- Third person, past tense, plain and factual, like a chronicle entry. British English.
-- No first person, no jokes, no flourish, no addressing the reader.
+Style and tone:
+- Write it like a novel: third person, past tense, flowing narrative prose with a sense of place, pace and scene. British English.
+- Set each scene: where the character was and what the place was like, drawn from the zone names and the lore notes. Let the events carry the story, with turning points (a level, a death, a dungeon, a hard-won quest) given their weight.
+- Spoken words of other players may appear as dialogue in quotation marks, exactly as recorded.
+- No first person, no jokes, no addressing the reader. Rich, but never purple: every flourish must rest on a fact from the record or the lore notes.
 - The character's name, race, class and level are facts and may appear. Use "he" or "she" for the character only when the session facts give the character's sex; otherwise use the name or "they".
 - The record does not hold anyone else's sex: refer to other people by name or as "they".
 
@@ -537,17 +543,17 @@ Faithfulness:
 - A death with no killer recorded has no known killer. Do not name one.
 
 Other players:
-- Name them as recorded and report what they did and said. Report speech plainly, mostly as indirect speech, with a short quotation where the exact words matter.
-- Never judge or characterise anyone.
+- Name them as recorded and tell what they did and said, as dialogue or as reported speech.
+- Never judge or characterise anyone, and never give anyone feelings or thoughts the record does not hold.
 - Leave out out-of-character talk: text in brackets or double brackets, such as (( brb )) or (ooc), and game-mechanics chatter such as "lfg" or "inv".
 - Leave out trade and recruitment adverts and other chatter that has nothing to do with the character.
 
 Length and form:
-- The length follows the session: a quiet hour gets a few lines, a long evening of quests and talk gets more. No padding, no summary of the summary.
-- Write in paragraphs of prose, in the order things happened. No headings, no bullet lists, no times of day unless they matter.
+- The length follows the session: a quiet hour gets a few paragraphs, a long evening of quests and talk gets more. No padding, no summary of the summary.
+- Write in paragraphs of prose, in the order things happened. No headings, no bullet lists, no times of day unless they matter to the story.
 
 Reply in exactly this form:
-TITLE: <a plain title for the session, at most eight words, in sentence case: a capital letter only for the first word and for names>
+TITLE: <a chapter title for the session, at most eight words, in sentence case: a capital letter only for the first word and for names>
 
 <the account>
 '@
@@ -560,7 +566,7 @@ function New-SummaryPrompt([string]$Header, [string[]]$Lines, [string]$Lore, [in
     [void]$sb.AppendLine($Header)
     if ($Parts -gt 1) {
         [void]$sb.AppendLine()
-        [void]$sb.AppendLine("This session is long, so its record comes in $Parts pieces; this is piece $Part. Write the account of this piece only, as the next stretch of one continuous chronicle. The reader must not be able to tell where one piece ends: never mention pieces or parts.")
+        [void]$sb.AppendLine("This session is long, so its record comes in $Parts pieces; this is piece $Part. Write the account of this piece only, as the next stretch of one continuous chapter. The reader must not be able to tell where one piece ends: never mention pieces or parts.")
         if ($Previous) {
             [void]$sb.AppendLine('The account so far, for continuity only. Do not repeat it; continue from where it ends, in the same voice:')
             [void]$sb.AppendLine('"""')
@@ -906,9 +912,9 @@ function Test-JournalSnapshotLua([string]$Lua) {
 
 function Get-OverviewRules {
 @'
-You write the overview of a character's journey in World of Warcraft (the WoW: Forever server), built only from the chronicle entries of its play sessions, which you are given in order.
+You write the overview of a character's journey in World of Warcraft (the WoW: Forever server), built only from the chapters written for its play sessions, which you are given in order.
 
-- Third person, past tense, plain and factual, British English. No first person, no jokes, no flourish.
+- Write it like a novel: third person, past tense, flowing narrative prose, British English. No first person, no jokes, no addressing the reader; every flourish must rest on the entries.
 - State only what the entries hold. Do not invent events, motives, feelings or dialogue, and do not add lore.
 - Every person, place, quest and number you name must appear in the entries.
 - Tell the journey as a whole: where the character went, what it did and with whom, the turning points (levels, deaths, dungeons, bosses). Leave out small detail.

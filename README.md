@@ -2,7 +2,7 @@
 
 JourneyMaster keeps a journal of your character's journey in WoW: Forever (World of Warcraft: Forever). An add-on records what your character does while you play, without any input from you. After each play session, a small app on your PC has the AI (artificial intelligence) write a plain account of that session. You read the journal in the game and as Markdown files on your PC.
 
-Every character gets the same neutral narrator: third person, past tense, factual. It writes only what the record holds and invents nothing.
+Every character gets the same narrator, who writes each session like a chapter of a novel: third person, past tense, with a sense of place. It still writes only what the record holds and invents nothing. What NPCs, bosses and pets say is used only as background and never retold.
 
 ## What you need
 
@@ -43,6 +43,8 @@ Every character gets the same neutral narrator: third person, past tense, factua
 
 - Click the **minimap button** (a book), or type `/jm`, to open the journal. The add-on menu has an entry for it too.
 - The **session list** on the left drives both tabs. **Journal** shows a session's summary. **Log** shows its raw entries, with one on/off switch for each kind of entry. **Settings** has the switches for each chat channel, NPC speech, screenshots, the minimap button and a reload prompt.
+- **AI summaries**, under Settings, chooses the model (Opus, Sonnet, Haiku or Fable) and the effort level (low to max) the app summarises with. The default is Opus at low effort. Each click steps to the next choice. The change reaches the running app within seconds, through the chat log, and applies from its next summary. It is kept for each character. The app's `-Model` and `-Effort` options set the default for characters that have not chosen.
+- The **Log** colours each line in the game's own chat colour for its kind (say, yell, party, emote, NPC speech and so on), loot in its item quality colour, and notes in white. Player emotes have their own switch, apart from chat.
 - **Screenshots** show as thumbnails under the summary of each of the newest sessions. The app makes them in the add-on's `Thumbs\` folder. The game may only find a new thumbnail after a full restart of the game, not after `/reload`; this is not yet checked.
 - **Open screenshots**, in the foot of the window, has the app open that session's screenshots in File Explorer a few seconds later, with no reload.
 - **Finish session** ends the session in progress (also `/jm end`) and offers a reload, so the game writes the record and the app can summarise it at once.

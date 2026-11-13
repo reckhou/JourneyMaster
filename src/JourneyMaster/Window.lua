@@ -201,14 +201,55 @@ local function buildSettings(panel)
     local note = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     note:SetTextColor(UI.RGB(C.muted))
     note:SetPoint("TOPLEFT", 12, y - 8)
-    note:SetPoint("RIGHT", panel, "RIGHT", -12, 0)
+    note:SetWidth(350) -- the right-hand column holds the AI settings
     note:SetJustifyH("LEFT")
     note:SetText("Settings are kept per character. Whispers, guild, officer and numbered channels are never recorded. "
         .. "/jm help lists the commands, including /jm keep <n> (recent sessions whose record stays in the add-on) and /jm reloadhours <n>.")
 end
 
+-- The AI model and effort the app summarises with: one button each, which steps to the next choice on a click. The
+-- change goes to the app at once through the chat log (Signal.SetAI) and is kept in the saved data for later runs.
+local aiButtons = {}
+
+local function aiLabel(field)
+    if field == "model" then return "Model: " .. Core.ChoiceLabel(Core.AI_MODELS, rec().Setting("aiModel")) end
+    return "Effort: " .. Core.ChoiceLabel(Core.AI_EFFORTS, rec().Setting("aiEffort"))
+end
+
+local function buildAISettings(panel)
+    local x = 380
+    local head = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    head:SetPoint("TOPLEFT", x, -12)
+    head:SetText("AI summaries")
+    head:SetTextColor(UI.RGB(C.gold))
+    local y = -36
+    for _, field in ipairs({ "model", "effort" }) do
+        local b = UI.FlatButton(panel, "Effort: Extra high", "GameFontNormalSmall", C.raised, C.edge, C.soft, 10, 22)
+        b:SetPoint("TOPLEFT", x, y)
+        b:SetScript("OnClick", function(self)
+            local list = field == "model" and Core.AI_MODELS or Core.AI_EFFORTS
+            local value = Core.NextChoice(list, rec().Setting(field == "model" and "aiModel" or "aiEffort"))
+            ns.Signal.SetAI(field, value)
+            self.label:SetText(aiLabel(field))
+        end)
+        UI.Tooltip(b, field == "model" and "AI model" or "Effort",
+            field == "model" and "The model the app on your PC writes summaries with. Click for the next one. Takes effect at the app's next summary; the app must be running."
+                or "How much the model thinks before it writes. Higher is slower and costs more. Click for the next level. Takes effect at the app's next summary.")
+        aiButtons[field] = b
+        y = y - 30
+    end
+    local note = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    note:SetTextColor(UI.RGB(C.muted))
+    note:SetPoint("TOPLEFT", x, y - 4)
+    note:SetPoint("RIGHT", panel, "RIGHT", -8, 0)
+    note:SetJustifyH("LEFT")
+    note:SetText("Default: Opus, low effort. Kept for this character.")
+end
+Window.AIButtons = aiButtons
+
 local function showSettings()
     for key, c in pairs(settingsChecks) do c:SetChecked(rec().Setting(key) and true or false) end
+    for field, b in pairs(aiButtons) do b.label:SetText(aiLabel(field)) end
 end
 
 -- The window -------------------------------------------------------------------------------------------------------
@@ -345,6 +386,7 @@ local function create()
     win.settings:SetPoint("BOTTOMRIGHT", -(EDGE + 8), EDGE + FOOT_H)
     win.settings:Hide()
     buildSettings(win.settings)
+    buildAISettings(win.settings)
 
     -- Foot: a bronze line, the counts in muted text, the reload button in the mock-up's red and gold. The button is as
     -- wide as its label, and the counts stop short of it.

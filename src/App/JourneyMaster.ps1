@@ -30,8 +30,8 @@ param(
     [string]$ScreenshotDir,    # by default <WowDir>\Screenshots
     [string]$LoreDir,          # by default ..\wow-forever-rp-profile\references\lore beside this repository, when present
     [string]$ClaudePath,
-    [string]$Model = 'claude-sonnet-5-5',
-    [string]$Effort = 'low',
+    [string]$Model = 'opus',   # default AI model (a claude alias); each character's choice under Settings in the game wins
+    [string]$Effort = 'low',   # default effort level, likewise
     [int]$Attempts = 2,        # AI calls per summary when the first is refused or not grounded
     [int]$FullSessions = 10,   # newest sessions whose summary text goes into the snapshot; older ones by title only
     [int]$MaxPromptChars = 60000, # a record longer than this is summarised in parts
@@ -151,6 +151,15 @@ function Import-SavedVariables([string]$Path) {
             Say "$key`: $n new entries stored"
             $script:Changed = $true
         }
+        $settings = $sv['settings']
+        # The AI choice in the saved file. The file is only as new as the last /reload or logout, and a choice made since
+        # has already arrived as a signal, so a value is applied only when the file's value itself has changed.
+        if ($settings -is [Collections.IDictionary]) {
+            foreach ($pair in @(@('model', 'aiModel', 'SeenModel'), @('effort', 'aiEffort', 'SeenEffort'))) {
+                $v = [string]$settings[$pair[1]]
+                if ($v -and $v -ne [string]$c[$pair[2]]) { $c[$pair[2]] = $v; [void](Set-AISetting $c $pair[0] $v) }
+            }
+        }
         if ([long]$sv['dropped'] -gt [long]$c['Dropped']) {
             Say "$key`: the add-on dropped $($sv['dropped']) entries at its size cap" 'Yellow'
             $c.Dropped = [long]$sv['dropped']
@@ -197,6 +206,11 @@ function Invoke-Signal($Sig) {
     $c = $State.Characters[$Sig.Key]
     switch ($Sig.Kind) {
         'OPEN' { Open-SessionShots $Sig.Key $c $Sig.S }
+        'SET' {
+            $field, $value = ([string]$Sig.Arg) -split '=', 2
+            if (Set-AISetting $c $field $value) { Save-State; Say "$($Sig.Key)`: AI $field set to $value in the game; used from the next summary" 'Cyan' }
+            elseif (@('model', 'effort') -notcontains $field -or ($AIModels + $AIEfforts) -notcontains $value) { Say "$($Sig.Key)`: unknown AI setting $($Sig.Arg)" 'Yellow' }
+        }
         'END' { Say "$($Sig.Key)`: session $($Sig.S) finished in the game; it is summarised once the game writes the record (at /reload or logout)" 'Cyan' }
         default { Dbg "unknown signal $($Sig.Kind)" }
     }
@@ -204,10 +218,32 @@ function Invoke-Signal($Sig) {
 
 # Step 2: summaries ------------------------------------------------------------------------------------------------------
 
+# The AI model and effort: each character's choice from the game (Settings), else -Model and -Effort.
+$AIModels = 'opus', 'sonnet', 'haiku', 'fable'
+$AIEfforts = 'low', 'medium', 'high', 'xhigh', 'max'
+$script:UseModel = $Model
+$script:UseEffort = $Effort
+
+# Records a character's choice of model or effort, if it is one of the allowed values. Returns $true when it changed.
+function Set-AISetting($c, [string]$Field, [string]$Value) {
+    $list = if ($Field -eq 'model') { $AIModels } else { $AIEfforts }
+    if ($list -notcontains $Value) { return $false }
+    $name = if ($Field -eq 'model') { 'Model' } else { 'Effort' }
+    if ([string]$c[$name] -eq $Value) { return $false }
+    $c[$name] = $Value
+    $true
+}
+
+function Use-AISettings($c) {
+    $script:UseModel = if ($c -and $c['Model']) { [string]$c['Model'] } else { $Model }
+    $script:UseEffort = if ($c -and $c['Effort']) { [string]$c['Effort'] } else { $Effort }
+    Dbg "AI: $script:UseModel, $script:UseEffort effort"
+}
+
 function Invoke-Model([string]$Rules, [string]$Prompt) {
     $rulesFile = Join-Path $WorkDir 'rules.md'
     [IO.File]::WriteAllText($rulesFile, $Rules, (New-Object Text.UTF8Encoding $false))
-    $argList = @('-p', '--model', $Model, '--effort', $Effort, '--output-format', 'json', '--safe-mode', '--tools', '',
+    $argList = @('-p', '--model', $script:UseModel, '--effort', $script:UseEffort, '--output-format', 'json', '--safe-mode', '--tools', '',
         '--system-prompt-file', $rulesFile)
     $r = Invoke-ClaudeCli -ClaudePath $ClaudePath -Arguments $argList -WorkDir $WorkDir -Prompt $Prompt
     Dbg "prompt: $($Prompt.Length) characters"
@@ -234,7 +270,7 @@ function Get-GroundedReply([string]$Rules, [string]$Prompt, [string]$Source, $Fa
         if ($score -eq 0) { break }
         Dbg "not in the record: $($missing -join ', '); left out: $($lost -join ', '); talks about its sources: $($meta -join ', ')"
         $fix = @()
-        if ($meta.Count -gt 0) { $fix += 'Your previous reply talked about its sources (' + ($meta -join ', ') + '). Write only about the events, as a chronicle.' }
+        if ($meta.Count -gt 0) { $fix += 'Your previous reply talked about its sources (' + ($meta -join ', ') + '). Write only about the events, as a novel.' }
         if ($missing.Count -gt 0) { $fix += 'Your previous reply named things the record does not hold: ' + ($missing -join ', ') + '. Use only what the record holds.' }
         if ($lost.Count -gt 0) { $fix += 'Your previous reply left out these events, which must be in the account: ' + ($lost -join '; ') + '.' }
         $ask = $Prompt + "`n`n# Correction`n" + ($fix -join "`n") + "`nWrite the account again."
@@ -339,6 +375,7 @@ function Update-Summaries {
                 continue
             }
             if (-not (Test-SessionFinished $s ($i -eq $sessions.Count - 1) $now $running)) { Dbg "$key session $($s.S) is not finished yet"; continue }
+            Use-AISettings $c
             if (Invoke-SessionSummary $key $c $s) {
                 $script:Changed = $true
                 if ($updated -notcontains $key) { $updated += $key }
@@ -473,6 +510,7 @@ function Invoke-Once {
     Save-State
     $updated = @(Update-Summaries)
     foreach ($key in $updated) {
+        Use-AISettings $State.Characters[$key]
         if (-not $NoOverview) { Update-Overview $key }
         Write-Export $key
     }

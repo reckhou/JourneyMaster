@@ -60,18 +60,30 @@ Signal.HideLines = hideLines
 
 function Signal.IsWriting() return writing ~= nil end
 
--- Sends a signal about session s of the current character. onDone runs once the last line is written.
--- Returns false when a signal is still being written or the game cannot write system lines.
-function Signal.Send(kind, s, onDone)
-    if writing or type(SendSystemMessage) ~= "function" then return false end
+local queue = {} -- signals waiting for the one being written: { kind, arg, onDone }
+
+-- Sends a signal (arg: a session number, or "field=value" for SET) for the current character. onDone runs once the
+-- last line is written. A signal sent while another is being written waits for it. Returns false when the game cannot
+-- write system lines.
+function Signal.Send(kind, arg, onDone)
+    if type(SendSystemMessage) ~= "function" then return false end
     local c = rec().Char()
     if not c then return false end
+    if writing then
+        queue[#queue + 1] = { kind, arg, onDone }
+        return true
+    end
+    local function finished()
+        if onDone then onDone() end
+        local nextOne = table.remove(queue, 1)
+        if nextOne then Signal.Send(nextOne[1], nextOne[2], nextOne[3]) end
+    end
     if LoggingChat and not (C_ChatInfo and C_ChatInfo.IsLoggingChat and C_ChatInfo.IsLoggingChat()) then
         rec().Try("turning on chat logging", LoggingChat, true)
     end
     count = count + 1
     local id = loginStamp .. "-" .. count
-    writing = { lines = Core.SignalLines(id, kind, s, Core.CharKey(c.name, c.realm)), nextLine = 1, id = id }
+    writing = { lines = Core.SignalLines(id, kind, arg, Core.CharKey(c.name, c.realm)), nextLine = 1, id = id }
     quietSystemChat()
     local function step()
         for _ = 1, PER_TICK do
@@ -80,7 +92,7 @@ function Signal.Send(kind, s, onDone)
                 if writing.ticker then writing.ticker:Cancel() end
                 writing = nil
                 restoreSystemChat()
-                if onDone then onDone() end
+                finished()
                 return true
             end
             SendSystemMessage(line)
@@ -93,6 +105,15 @@ function Signal.Send(kind, s, onDone)
         while not step() do end
     end
     return true, id
+end
+
+-- Changing the AI model or effort under Settings: saved per character, and sent to the app, which uses it from its
+-- next AI call. field: "model" or "effort".
+function Signal.SetAI(field, value)
+    local c = rec().Char()
+    if not c then return false end
+    c.settings[field == "model" and "aiModel" or "aiEffort"] = value
+    return Signal.Send("SET", field .. "=" .. value)
 end
 
 -- Finishing the session (/jm end, or the window's Finish session button): an "end" entry closes it, the next entry

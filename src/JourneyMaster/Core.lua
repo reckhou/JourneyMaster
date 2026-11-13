@@ -70,7 +70,23 @@ Core.DEFAULTS = {
     reloadPrompt = false,  -- after a long session, offer a /reload so a crash cannot lose it
     reloadHours = 2,
     keepSessions = 5,      -- newest sessions whose raw entries stay in the add-on after the app has stored them
+    aiModel = "opus",      -- the AI model the app summarises with (a `claude` command alias)
+    aiEffort = "low",      -- and its effort level
 }
+
+-- The choices for the AI model and effort under Settings: the `claude` command's aliases and effort levels.
+Core.AI_MODELS = { { "opus", "Opus" }, { "sonnet", "Sonnet" }, { "haiku", "Haiku" }, { "fable", "Fable" } }
+Core.AI_EFFORTS = { { "low", "Low" }, { "medium", "Medium" }, { "high", "High" }, { "xhigh", "Extra high" }, { "max", "Max" } }
+
+-- The choice after `value` in a list of choices (wrapping round), and the label of a value.
+function Core.NextChoice(list, value)
+    for i, c in ipairs(list) do if c[1] == value then return list[i % #list + 1][1] end end
+    return list[1][1]
+end
+function Core.ChoiceLabel(list, value)
+    for _, c in ipairs(list) do if c[1] == value then return c[2] end end
+    return tostring(value)
+end
 
 -- Chat events, the channel name recorded and the setting that switches it. Whispers are never recorded.
 Core.CHAT = {
@@ -516,9 +532,11 @@ end
 -- of padding lines, which makes the game write it about a second later. No line may hold "|", which the log cuts at.
 Core.PAD_BYTES, Core.PAD_LEN = 48 * 1024, 200
 
--- "JMS:<id>:<KIND>:<session>:<character key>". The key goes last, as it is the only field that could hold a colon.
-function Core.SignalLine(id, kind, s, key)
-    return (("JMS:%s:%s:%d:%s"):format(tostring(id), tostring(kind), tonumber(s) or 0, tostring(key or "?")):gsub("[|\r\n]", "_"))
+-- "JMS:<id>:<KIND>:<arg>:<character key>". The arg is a session number (OPEN, END) or "field=value" (SET); it may not
+-- hold a colon. The key goes last, as it is the only field that could hold one.
+function Core.SignalLine(id, kind, arg, key)
+    arg = tostring(arg or ""):gsub(":", "_")
+    return (("JMS:%s:%s:%s:%s"):format(tostring(id), tostring(kind), arg, tostring(key or "?")):gsub("[|\r\n]", "_"))
 end
 
 function Core.PadLine(id, n)
@@ -527,8 +545,8 @@ function Core.PadLine(id, n)
 end
 
 -- The lines of one signal: the signal, then the padding.
-function Core.SignalLines(id, kind, s, key)
-    local lines = { Core.SignalLine(id, kind, s, key) }
+function Core.SignalLines(id, kind, arg, key)
+    local lines = { Core.SignalLine(id, kind, arg, key) }
     for n = 1, math.ceil(Core.PAD_BYTES / Core.PAD_LEN) do lines[#lines + 1] = Core.PadLine(id, n) end
     return lines
 end

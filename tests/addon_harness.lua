@@ -240,6 +240,25 @@ check(not table.concat(W.system):find("|", 1, true), "no | in signal lines")
 eq(W.filters.CHAT_MSG_SYSTEM(nil, "CHAT_MSG_SYSTEM", W.system[1]), true, "signal line hidden from the chat window")
 eq(W.filters.CHAT_MSG_SYSTEM(nil, "CHAT_MSG_SYSTEM", "You are now Away."), false, "other system lines shown")
 eq(c.openShots, nil, "no request left in the saved data")
+
+-- AI settings: Opus and low effort by default; each click steps to the next choice, is saved, and is signalled.
+ns.Window.SelectTab("settings")
+eq(ns.Recorder.Setting("aiModel"), "opus", "Opus by default")
+eq(ns.Recorder.Setting("aiEffort"), "low", "low effort by default")
+eq(ns.Window.AIButtons.model.label:GetText(), "Model: Opus", "model shown")
+W.system = {}
+ns.Window.AIButtons.model:Click()
+ns.Window.AIButtons.effort:Click() -- while the first signal is still being written: it waits its turn
+W.RunSignalTickers()
+eq(c.settings.aiModel, "sonnet", "next model saved")
+eq(c.settings.aiEffort, "medium", "next effort saved")
+eq(ns.Window.AIButtons.effort.label:GetText(), "Effort: Medium", "effort shown")
+local sets = {}
+for _, line in ipairs(W.system) do if line:find("^JMS:") then sets[#sets + 1] = line end end
+eq(#sets, 2, "both changes signalled")
+check(sets[1]:find(":SET:model=sonnet:Baldrake Cavendell%-LivingFlame$"), "model signal: " .. tostring(sets[1]))
+check(sets[2]:find(":SET:effort=medium:"), "effort signal: " .. tostring(sets[2]))
+ns.Window.SelectTab("journal")
 -- A new session starts; at the next login the stored session is trimmed, as it is no longer among the newest kept.
 c.settings.keepSessions = 1
 tick(4000)
