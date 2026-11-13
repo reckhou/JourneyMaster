@@ -236,11 +236,18 @@ end
 
 -- The screenshot of a zone's first visit waits until the player has stayed in the zone for ZONE_STAY seconds (owner's
 -- decision, 13 November 2026), so passing through, or crossing it on a flight path, takes none. A zone counts as seen
--- once its screenshot is taken; leaving it sooner means the next visit tries again. After any flight seen during the
--- wait, the screenshot also waits LANDED seconds on the ground (owner's decision, 13 November 2026), so it shows the
--- place and not the dismount. The wait is checked every ZONE_POLL seconds, which is how flight is noticed.
-Rec.ZONE_STAY, Rec.ZONE_LANDED, Rec.ZONE_POLL = 300, 60, 15
+-- for ZONE_COOLDOWN seconds after its screenshot is taken (owner's decision, 13 November 2026): zonesSeen keeps the
+-- time of that screenshot, and a later stay takes a new one ("zone", not "new zone"). Leaving the zone before the
+-- screenshot means the next visit tries again. Saved values of true (from before the cooldown) count as long ago.
+-- After any flight seen during the wait, the screenshot also waits LANDED seconds on the ground (owner's decision,
+-- 13 November 2026), so it shows the place and not the dismount. The wait is checked every ZONE_POLL seconds, which is how flight is noticed.
+Rec.ZONE_STAY, Rec.ZONE_LANDED, Rec.ZONE_POLL, Rec.ZONE_COOLDOWN = 300, 60, 15, 3600
 local zoneWait -- { z = zone, since = time, flew = time last seen flying, token }
+
+local function zoneSeen(z)
+    local t = char.zonesSeen[z]
+    return type(t) == "number" and now() - t < Rec.ZONE_COOLDOWN
+end
 
 local function zoneShotDue(token)
     if not zoneWait or zoneWait.token ~= token then return end -- left the zone, or a newer wait began
@@ -253,8 +260,9 @@ local function zoneShotDue(token)
         return
     end
     zoneWait = nil
-    char.zonesSeen[z] = true
-    Rec.Shot("new zone", z)
+    local why = char.zonesSeen[z] and "zone" or "new zone"
+    char.zonesSeen[z] = t
+    Rec.Shot(why, z)
 end
 
 function Rec.CheckZone()
@@ -265,7 +273,7 @@ function Rec.CheckZone()
     local stay = Rec.StayZone() -- the outdoor zone: a step into a building does not end the wait
     if not stay then return end
     if zoneWait and zoneWait.z ~= stay then zoneWait = nil end
-    if not char.zonesSeen[stay] and not zoneWait and Rec.Setting("screenshots") and C_Timer and C_Timer.After then
+    if not zoneSeen(stay) and not zoneWait and Rec.Setting("screenshots") and C_Timer and C_Timer.After then
         local token = {}
         zoneWait = { z = stay, since = now(), flew = Rec.Flying() and now() or nil, token = token }
         C_Timer.After(Rec.ZONE_POLL, Rec.Guard("the zone screenshot", function() zoneShotDue(token) end))

@@ -136,6 +136,31 @@ W.zone, W.sub = "Elwynn Forest", ""
 eq(ns.Recorder.StayZone(), "Elwynn Forest", "without map answers, the game's zone name is used")
 fire("ZONE_CHANGED_NEW_AREA")
 
+-- A zone counts as seen for an hour after its screenshot; a stay after that takes a new one.
+local shots = W.shots
+tick(300)
+W.RunTimers() W.RunTimers()
+eq(W.shots, shots, "back in a zone within the hour: no screenshot")
+eq(type(c.zonesSeen["Elwynn Forest"]), "number", "zonesSeen keeps the time of the screenshot")
+c.zonesSeen["Elwynn Forest"] = W.now - ns.Recorder.ZONE_COOLDOWN -- the hour is over
+W.zone = "Westfall"
+fire("ZONE_CHANGED_NEW_AREA")
+W.zone = "Elwynn Forest"
+fire("ZONE_CHANGED_NEW_AREA")
+tick(300)
+W.RunTimers() W.RunTimers()
+eq(W.shots, shots + 1, "back in a zone after the hour: screenshot after 5 minutes there")
+eq(last().why, "zone", "a repeat zone screenshot is not a first visit")
+eq(c.zonesSeen["Elwynn Forest"], W.now, "the hour starts again")
+c.zonesSeen["Westfall"] = true -- saved before the cooldown existed
+W.zone = "Westfall"
+fire("ZONE_CHANGED_NEW_AREA")
+tick(300)
+W.RunTimers() W.RunTimers()
+eq(W.shots, shots + 2, "an old saved zone (true) counts as seen long ago")
+W.zone = "Elwynn Forest"
+fire("ZONE_CHANGED_NEW_AREA")
+
 -- Chat -------------------------------------------------------------------------------------------------------------
 tick()
 fire("CHAT_MSG_SAY", "Does anyone know where the Bowyer is round here?", "Shelly Whitemoon", "", "", "Shelly Whitemoon", "", 0, 0, "", 0, 1, "Player-1-AAA")
