@@ -128,6 +128,7 @@ C_QuestLog = { GetTitleForQuestID = function(id) return W.quest.byId and W.quest
 C_DeathRecap = { GetRecapEvents = function(id) return W.recap[id] end }
 GetInventoryItemLink = function(_, slot) return W.gear and W.gear[slot] end
 Screenshot = function() W.shots = W.shots + 1 end
+UnitOnTaxi = function() return W.flying == true end
 RequestTimePlayed = function() end
 InCombatLockdown = function() return false end
 StaticPopupDialogs = {}

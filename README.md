@@ -30,7 +30,7 @@ Every character gets the same narrator, who writes each session like a chapter o
 
 ## How it works
 
-1. **In the game**, the add-on records zones, quests (with the quest's own text and the quest giver), what people near you say, NPC (non-player character) speech, deaths (with the killer when the game's death recap names one), bosses, dungeon entries and exits, rare loot, gear, group members, levels, skills, standing, money milestones and your own notes. It also takes a screenshot at level-ups, boss kills, dungeon entries and first visits to a zone.
+1. **In the game**, the add-on records zones, quests (with the quest's own text and the quest giver), what people near you say, NPC (non-player character) speech, deaths (with the killer when the game's death recap names one), bosses, dungeon entries and exits, rare loot, gear, group members, levels, skills, standing, money milestones and your own notes. It also takes a screenshot at level-ups, boss kills and dungeon entries, and in a zone visited for the first time once you have stayed there for 5 minutes. It takes none while you fly, on a flight path or a flying mount; it waits until you land.
 2. **The game writes the record to disk** at `/reload` or logout.
 3. **The app stores the new entries** under `data\journeys\<character>\events\`. This is the permanent record.
 4. **When a session ends**, the app has the AI write its summary as `data\journeys\<character>\sessions\<date>-<n>.md`. In dungeons and raids the game hides chat from add-ons, so the app fills those stretches from the game's own chat log, `Logs\WoWChatLog.txt`. The add-on turns chat logging on for this. A session file is never changed again once written, so you may edit it.

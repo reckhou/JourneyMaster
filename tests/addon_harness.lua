@@ -34,9 +34,45 @@ check(W.chatLogging, "chat logging turned on at login")
 fire("PLAYER_ENTERING_WORLD", true, false)
 eq(c.entries[1].k, "login", "login entry") eq(c.entries[2].k, "zone", "zone entry")
 eq(c.entries[2].z, "Elwynn Forest", "zone name")
-W.RunTimers() -- first visit screenshot
-eq(W.shots, 1, "first visit to a zone: screenshot")
+W.RunTimers()
+eq(W.shots, 0, "no screenshot on arriving in a zone")
+tick(300)
+W.RunTimers() -- 5 minutes in the zone
+W.RunTimers() -- the screenshot, a moment later
+eq(W.shots, 1, "first visit to a zone: screenshot after 5 minutes there")
 eq(last().k, "shot", "screenshot recorded")
+eq(last().why, "new zone", "screenshot reason")
+
+-- Passing through a zone takes no screenshot; flying puts a screenshot off until the player lands.
+W.zone = "Westfall"
+fire("ZONE_CHANGED_NEW_AREA")
+W.RunTimers()
+tick(100)
+W.zone = "Elwynn Forest"
+fire("ZONE_CHANGED_NEW_AREA")
+tick(300)
+W.RunTimers() W.RunTimers()
+eq(W.shots, 1, "left a zone within 5 minutes: no screenshot")
+check(not c.zonesSeen["Westfall"], "a zone passed through is not counted as seen")
+W.flying = true
+W.zone = "Redridge Mountains"
+fire("ZONE_CHANGED_NEW_AREA")
+tick(300)
+W.RunTimers() W.RunTimers()
+eq(W.shots, 1, "no zone screenshot while flying")
+W.flying = false
+tick(15)
+W.RunTimers() W.RunTimers()
+eq(W.shots, 2, "zone screenshot once landed")
+W.flying = true
+ns.Recorder.Shot("level")
+W.RunTimers() W.RunTimers()
+eq(W.shots, 2, "no level-up screenshot while flying")
+W.flying = false
+W.RunTimers() W.RunTimers()
+eq(W.shots, 3, "level-up screenshot once landed")
+W.zone = "Elwynn Forest"
+fire("ZONE_CHANGED_NEW_AREA")
 
 -- Chat -------------------------------------------------------------------------------------------------------------
 tick()
