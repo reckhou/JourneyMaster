@@ -38,7 +38,7 @@ Core.KIND_COLOUR = {}
 for _, kind in ipairs(Core.KINDS) do Core.KIND_COLOUR[kind.key] = kind.colour end
 -- Kinds that have no chip of their own are shown under one of the chips above.
 Core.CHIP_OF = {
-    zone = "zone", enter = "zone", leave = "zone", login = "zone", logout = "zone",
+    zone = "zone", enter = "zone", leave = "zone", login = "zone", logout = "zone", ["end"] = "zone",
     quest = "quest", chat = "chat", gap = "chat", npc = "npc", death = "death", boss = "boss",
     loot = "loot", gear = "loot", money = "loot", level = "level", skill = "level", rep = "level",
     group = "group", note = "note", shot = "note",
@@ -235,8 +235,9 @@ function Core.Char(db, key)
     return c
 end
 
--- Appends an entry to a character at time `now`, numbering it and placing it in a play session. A login (not a
--- reload) or a gap of SESSION_GAP starts a new session. At the cap, the oldest entries the app has already stored
+-- Appends an entry to a character at time `now`, numbering it and placing it in a play session. A gap of SESSION_GAP,
+-- or the player finishing the session (c.endSession, set by /jm end), starts a new session. A login does not: logging
+-- out and back in within SESSION_GAP stays in one session (owner's decision, 13 November 2026). At the cap, the oldest entries the app has already stored
 -- (number up to c.confirmed) make room; when there are none, the new entry is dropped and counted. Returns the entry.
 function Core.Append(c, entry, now)
     now = now or entry.t or 0
@@ -250,10 +251,11 @@ function Core.Append(c, entry, now)
             return nil
         end
     end
-    local newSession = c.session == 0
-        or (entry.k == "login" and not entry.reload)
+    local newSession = (c.session or 0) == 0
+        or c.endSession
         or (now - (c.lastT or 0) > Core.SESSION_GAP)
     if newSession then c.session = (c.session or 0) + 1 end
+    c.endSession = nil
     c.seq = (c.seq or 0) + 1
     entry.i = c.seq
     entry.s = c.session
@@ -393,6 +395,7 @@ function Core.Describe(e)
     elseif k == "leave" then return "Left " .. tostring(e.inst)
     elseif k == "login" then return e.reload and "Interface reloaded" or "Logged in"
     elseif k == "logout" then return "Logged out"
+    elseif k == "end" then return "Finished the session"
     elseif k == "quest" then
         if e.act == "accept" then
             return "Accepted " .. q(e.title) .. (e.giver and (" from " .. e.giver) or "")
@@ -448,6 +451,28 @@ function Core.SessionHeader(s)
     if s.levelTo then parts[#parts + 1] = "level " .. (s.levelFrom or "?") .. "-" .. s.levelTo end
     if #s.zones > 0 then parts[#parts + 1] = table.concat(s.zones, ", ") end
     return table.concat(parts, " \194\183 ")
+end
+
+-- Signals to the app through the chat log (the method of RPMaster's ADR 0001, "text capture through the padded chat
+-- log"). The game writes WoWChatLog.txt only in 48 KiB blocks or at exit, so a signal line is followed by about 48 KiB
+-- of padding lines, which makes the game write it about a second later. No line may hold "|", which the log cuts at.
+Core.PAD_BYTES, Core.PAD_LEN = 48 * 1024, 200
+
+-- "JMS:<id>:<KIND>:<session>:<character key>". The key goes last, as it is the only field that could hold a colon.
+function Core.SignalLine(id, kind, s, key)
+    return (("JMS:%s:%s:%d:%s"):format(tostring(id), tostring(kind), tonumber(s) or 0, tostring(key or "?")):gsub("[|\r\n]", "_"))
+end
+
+function Core.PadLine(id, n)
+    local head = ("JMP:%s:%05d:"):format(tostring(id), n)
+    return head .. ("."):rep(Core.PAD_LEN - #head)
+end
+
+-- The lines of one signal: the signal, then the padding.
+function Core.SignalLines(id, kind, s, key)
+    local lines = { Core.SignalLine(id, kind, s, key) }
+    for n = 1, math.ceil(Core.PAD_BYTES / Core.PAD_LEN) do lines[#lines + 1] = Core.PadLine(id, n) end
+    return lines
 end
 
 return Core

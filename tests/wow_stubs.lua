@@ -66,10 +66,33 @@ PanelTemplates_SetNumTabs = function() end
 PanelTemplates_TabResize = function() end
 GetCursorPosition = function() return 0, 100 end
 ReloadUI = function() W.reloads = W.reloads + 1 end
+W.tickers = {}
 C_Timer = {
     After = function(_, fn) W.timers[#W.timers + 1] = fn end,
-    NewTicker = function(_, fn) W.ticker = fn end,
+    -- W.ticker is the first ticker made (the recorder's); every ticker is also kept in W.tickers.
+    NewTicker = function(_, fn)
+        local t = { fn = fn }
+        function t:Cancel() self.cancelled = true end
+        W.tickers[#W.tickers + 1] = t
+        W.ticker = W.ticker or fn
+        return t
+    end,
 }
+-- Runs every ticker not cancelled, except the first, until all are cancelled (at most n rounds).
+function W.RunSignalTickers(n)
+    for _ = 1, n or 1000 do
+        local live = false
+        for i = 2, #W.tickers do
+            local t = W.tickers[i]
+            if not t.cancelled then live = true t.fn() end
+        end
+        if not live then return end
+    end
+end
+W.system = {}
+SendSystemMessage = function(line) W.system[#W.system + 1] = line end
+ChatFrame_AddMessageEventFilter = function(event, fn) W.filters = W.filters or {} W.filters[event] = fn end
+C_ChatInfo = { IsLoggingChat = function() return W.chatLogging end }
 function W.RunTimers()
     local list = W.timers
     W.timers = {}

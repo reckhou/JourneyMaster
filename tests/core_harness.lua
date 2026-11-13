@@ -77,7 +77,20 @@ eq(c.entries[3].s, 1, "a reload stays in the session")
 Core.Append(c, { k = "note", text = "x" }, T + 20 + Core.SESSION_GAP + 1)
 eq(c.entries[4].s, 2, "a long gap starts a session")
 Core.Append(c, { k = "login" }, T + 20 + Core.SESSION_GAP + 5)
-eq(c.entries[5].s, 3, "a login starts a session")
+eq(c.entries[5].s, 2, "a login soon after stays in the session")
+Core.Append(c, { k = "end" }, T + 20 + Core.SESSION_GAP + 6)
+eq(c.entries[6].s, 2, "the end entry closes its own session")
+c.endSession = true
+Core.Append(c, { k = "login" }, T + 20 + Core.SESSION_GAP + 7)
+eq(c.entries[7].s, 3, "a finished session: the next entry starts a new one")
+eq(c.endSession, nil, "finish used once")
+eq(Core.Chip({ k = "end" }), "zone", "end entries under the zone chip")
+-- Signals to the app.
+local sig = Core.SignalLines("123-1", "OPEN", 4, "Baldrake Cavendell-LivingFlame")
+eq(sig[1], "JMS:123-1:OPEN:4:Baldrake Cavendell-LivingFlame", "signal line")
+eq(#sig[2], Core.PAD_LEN, "padding line length")
+check((#sig - 1) * Core.PAD_LEN >= Core.PAD_BYTES, "padding fills 48 KiB")
+eq(Core.SignalLine("1", "OPEN", 1, "A|B"), "JMS:1:OPEN:1:A_B", "no | in a signal")
 
 -- Zones: rapid changes merge, repeats are ignored.
 local z = Core.Char({}, "Z-R")

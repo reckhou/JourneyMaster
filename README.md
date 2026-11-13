@@ -33,7 +33,9 @@ Every character gets the same neutral narrator: third person, past tense, factua
 1. **In the game**, the add-on records zones, quests (with the quest's own text and the quest giver), what people near you say, NPC (non-player character) speech, deaths (with the killer when the game's death recap names one), bosses, dungeon entries and exits, rare loot, gear, group members, levels, skills, standing, money milestones and your own notes. It also takes a screenshot at level-ups, boss kills, dungeon entries and first visits to a zone.
 2. **The game writes the record to disk** at `/reload` or logout.
 3. **The app stores the new entries** under `data\journeys\<character>\events\`. This is the permanent record.
-4. **When a session ends** (a logout, or 30 minutes without play), the app has the AI write its summary as `data\journeys\<character>\sessions\<date>-<n>.md`. In dungeons and raids the game hides chat from add-ons, so the app fills those stretches from the game's own chat log, `Logs\WoWChatLog.txt`. The add-on turns chat logging on for this. A session file is never changed again once written, so you may edit it.
+4. **When a session ends**, the app has the AI write its summary as `data\journeys\<character>\sessions\<date>-<n>.md`. In dungeons and raids the game hides chat from add-ons, so the app fills those stretches from the game's own chat log, `Logs\WoWChatLog.txt`. The add-on turns chat logging on for this. A session file is never changed again once written, so you may edit it.
+
+   A session ends after 30 minutes without play, or when you finish it with **Finish session** (or `/jm end`). Logging out and back in within 30 minutes, even after closing the game, keeps the same session, so a summary arrives about 30 minutes after you stop playing. Finishing a session yourself skips the wait. Each character has its own sessions.
 5. **The app also writes** `overview.md` (the journey so far) and `journal.md` (the whole journal in one document), and gives the game a new snapshot of the summaries.
 6. **At your next `/reload` or login**, the summaries appear in the game.
 
@@ -42,7 +44,9 @@ Every character gets the same neutral narrator: third person, past tense, factua
 - Click the **minimap button** (a book), or type `/jm`, to open the journal. The add-on menu has an entry for it too.
 - The **session list** on the left drives both tabs. **Journal** shows a session's summary. **Log** shows its raw entries, with one on/off switch for each kind of entry. **Settings** has the switches for each chat channel, NPC speech, screenshots, the minimap button and a reload prompt.
 - **Screenshots** show as thumbnails under the summary of each of the newest sessions. The app makes them in the add-on's `Thumbs\` folder. The game may only find a new thumbnail after a full restart of the game, not after `/reload`; this is not yet checked.
-- **Open screenshots on PC**, in the foot of the window, asks the app to open that session's screenshots in File Explorer. An add-on cannot open folders itself, so the button saves a request and offers a reload, which writes it to disk. The app must be running (`scripts\run_app.bat`).
+- **Open screenshots**, in the foot of the window, has the app open that session's screenshots in File Explorer a few seconds later, with no reload.
+- **Finish session** ends the session in progress (also `/jm end`) and offers a reload, so the game writes the record and the app can summarise it at once.
+- An add-on cannot reach your PC itself, so both buttons send a hidden line through the game's chat log. About 48 KiB (kibibytes) of hidden filler follows it, which makes the game write the log to disk at once. This is the method RPMaster uses. It is proven on retail but not yet measured on WoW: Forever. Each click adds about 48 KiB to `Logs\WoWChatLog.txt`. The app must be running (`scripts\run_app.bat`).
 - `/jm note <text>` adds a note about something the game cannot see.
 - If part of the add-on fails, it says so once in chat and carries on recording. `/jm errors` lists every error since login, with how often each one happened.
 - `/jm help` lists every command.

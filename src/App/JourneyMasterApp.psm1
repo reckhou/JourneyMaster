@@ -143,16 +143,17 @@ function Test-HasInstance($Session) {
     $false
 }
 
-# Whether a session is over and ready to summarise. Over: a later session exists, or 30 minutes have passed since its
-# last entry, or it ended with a logout and the game is closed (a /reload also leaves a logout, but the game is then
-# still running). A session with a dungeon or raid waits for the game to close, because the chat log reaches disk at
-# exit, unless it ended more than two hours ago.
+# Whether a session is over and ready to summarise. Over: a later session exists, 30 minutes have passed since its last
+# entry, or the player finished it (an "end" entry, from /jm end or Finish session). A logout alone does not end it, even
+# with the game closed: logging back in within 30 minutes continues the session (owner's decision, 13 November 2026).
+# A session with a dungeon or raid waits for the game to close, because the chat log reaches disk at exit, unless it
+# ended more than two hours ago or was finished by the player (finishing forces the chat log to disk).
 function Test-SessionFinished($Session, [bool]$IsLatest, [long]$Now, [bool]$GameRunning, [int]$GapSeconds = 1800) {
     $idle = $Now - $Session.Last
-    $lastKind = Get-Field $Session.Entries[-1] 'k'
-    $over = (-not $IsLatest) -or ($idle -gt $GapSeconds) -or ($lastKind -eq 'logout' -and -not $GameRunning)
+    $finished = (Get-Field $Session.Entries[-1] 'k') -eq 'end'
+    $over = (-not $IsLatest) -or ($idle -gt $GapSeconds) -or $finished
     if (-not $over) { return $false }
-    if ($GameRunning -and (Test-HasInstance $Session) -and $idle -lt 7200) { return $false }
+    if ($GameRunning -and -not $finished -and (Test-HasInstance $Session) -and $idle -lt 7200) { return $false }
     $true
 }
 
@@ -227,7 +228,7 @@ function ConvertFrom-ChatLogLine([string]$Line, [long]$Near) {
     $t = ConvertFrom-ChatLogStamp ([int]$m.Groups[1].Value) ([int]$m.Groups[2].Value) ([int]$m.Groups[3].Value) ([int]$m.Groups[4].Value) ([int]$m.Groups[5].Value) $Near
     if ($null -eq $t) { return $null }
     $body = $m.Groups[6].Value
-    if ($body -match '^RPM[A-Z]*:') { return $null }
+    if ($body -match '^RPM[A-Z]*:' -or $body -match '^JM[SP]:') { return $null }
     $g = [regex]::Match($body, '^\|Hchannel:(PARTY|RAID|INSTANCE_CHAT|RAID_WARNING)\|h\[([^\]]+)\]\|h (.+?): (.*)$')
     if ($g.Success) {
         $ch = switch ($g.Groups[1].Value) { 'PARTY' { 'party' } 'INSTANCE_CHAT' { 'instance' } default { 'raid' } }
@@ -252,6 +253,16 @@ function ConvertFrom-ChatLogLine([string]$Line, [long]$Near) {
     $g = [regex]::Match($body, '^(.{1,60}) (joins|leaves) the (party|raid group)\.$')
     if ($g.Success) { return [pscustomobject]@{ T = $t; Kind = 'group'; Act = $(if ($g.Groups[2].Value -eq 'joins') { 'join' } else { 'leave' }); Who = $g.Groups[1].Value } }
     $null
+}
+
+# A signal from the add-on in a chat log line ("JMS:<id>:<KIND>:<session>:<character key>", see Signal.lua): Id, Kind,
+# S and Key, or $null for any other line. Anchored to the start of the line's text, so a player who says "JMS:..." in
+# chat (logged as "<name> says: JMS:...") cannot send one.
+$SignalLine = [regex]'^(?:\d{1,2}/\d{1,2} \d{2}:\d{2}:\d{2}\.\d{3}\s+)?JMS:([^:]+):([A-Z]+):(\d+):(.+)$'
+function ConvertFrom-SignalLine([string]$Line) {
+    $m = $SignalLine.Match($Line.TrimEnd("`r"))
+    if (-not $m.Success) { return $null }
+    [pscustomobject]@{ Id = $m.Groups[1].Value; Kind = $m.Groups[2].Value; S = [long]$m.Groups[3].Value; Key = $m.Groups[4].Value }
 }
 
 # The chat log lines that fall in any of the windows (a few seconds of slack either side), parsed. Lines are matched
@@ -974,7 +985,7 @@ function Invoke-ClaudeCli([string]$ClaudePath, [string[]]$Arguments, [string]$Wo
 
 Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Test-Coverage, Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
     Get-Field, Add-EventEntries, Read-EventEntries, Get-Sessions, Test-HasInstance, Test-SessionFinished, Get-SessionFacts,
-    Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
+    Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, ConvertFrom-SignalLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
     Format-Entry, Format-RecordLines, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
     ConvertFrom-SummaryReply, Test-Grounded, Get-SessionFileName, Format-SessionLine, Format-SessionMarkdown, Read-SessionMarkdown,
     Find-Screenshot, Get-SessionShots, New-Thumbnail, ConvertTo-LuaString, Get-SnapshotText, New-JournalSnapshotLua, Test-JournalSnapshotLua, Get-OverviewRules,

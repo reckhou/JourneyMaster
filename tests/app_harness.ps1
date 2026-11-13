@@ -122,8 +122,11 @@ JourneyMasterOther = nil
     True 'latest session running' (-not (Test-SessionFinished $sessions[1] $true ($T + 3 * 3600 + 60) $true))
     True 'latest session idle 31 minutes: finished' (Test-SessionFinished $sessions[1] $true ($T + 3 * 3600 + 1860) $true)
     $logoutSession = [pscustomobject]@{ S = 3; Entries = @(@{ k = 'login'; t = $T }, @{ k = 'logout'; t = $T + 10 }); First = $T; Last = $T + 10 }
-    True 'logout with the game closed: finished' (Test-SessionFinished $logoutSession $true ($T + 20) $false)
+    True 'logout with the game closed: waits 30 minutes for a login' (-not (Test-SessionFinished $logoutSession $true ($T + 20) $false))
     True 'logout with the game running (a reload): not finished' (-not (Test-SessionFinished $logoutSession $true ($T + 20) $true))
+    True 'logout 31 minutes ago: finished' (Test-SessionFinished $logoutSession $true ($T + 1871) $false)
+    $endSession = [pscustomobject]@{ S = 5; Entries = @(@{ k = 'enter'; t = $T; inst = 'The Stockade' }, @{ k = 'end'; t = $T + 10 }); First = $T; Last = $T + 10 }
+    True 'finished by the player: at once, even a dungeon with the game running' (Test-SessionFinished $endSession $true ($T + 20) $true)
     $dungeon = [pscustomobject]@{ S = 4; Entries = @(@{ k = 'enter'; t = $T; inst = 'The Stockade' }, @{ k = 'leave'; t = $T + 600; inst = 'The Stockade' }); First = $T; Last = $T + 600 }
     True 'dungeon session waits for the game to close' (-not (Test-SessionFinished $dungeon $false ($T + 4000) $true))
     True 'dungeon session after the game closed' (Test-SessionFinished $dungeon $false ($T + 4000) $false)
@@ -165,11 +168,19 @@ JourneyMasterOther = nil
         ((& $stamp 60) + 'Defias Prisoner dies, you gain 60 experience. (+18 group bonus)'),
         ((& $stamp 70) + 'You receive loot: Linen Clothx3'),
         ((& $stamp 80) + 'You died.'),
+        ((& $stamp 81) + 'JMS:1-1:OPEN:2:Baldrake Cavendell-LivingFlame'),
+        ((& $stamp 82) + 'JMP:1-1:00001:......'),
         ((& $stamp 5000) + '|Hchannel:PARTY|h[Party]|h After Window: too late')
     )
     [IO.File]::WriteAllText($logPath, ($logLines -join "`r`n") + "`r`n", $Utf8)
     $inWin = @(Read-ChatLogWindows $logPath $win)
-    Check 'lines in the window only' $inWin.Count 7
+    Check 'lines in the window only, signal lines left out' $inWin.Count 7
+    $sig = ConvertFrom-SignalLine ((& $stamp 81) + 'JMS:1-1:OPEN:2:Baldrake Cavendell-LivingFlame')
+    Check 'signal kind' $sig.Kind 'OPEN'
+    Check 'signal session' $sig.S 2
+    Check 'signal character' $sig.Key 'Baldrake Cavendell-LivingFlame'
+    True 'a player saying a signal is not one' ($null -eq (ConvertFrom-SignalLine ((& $stamp 81) + 'Mallory says: JMS:1-2:OPEN:2:Baldrake Cavendell-LivingFlame')))
+    True 'padding is not a signal' ($null -eq (ConvertFrom-SignalLine ((& $stamp 82) + 'JMP:1-1:00001:......')))
     $merged = @(Merge-ChatLog (@($dungeon.Entries) + @(@{ k = 'death'; t = $T + 82 })) $inWin 'Baldrake Cavendell' @())
     $kinds = ($merged | ForEach-Object { Get-Field $_ 'k' }) -join ','
     Check 'merged kinds' $kinds 'enter,chat,said,chat,kills,logloot,death,leave'
@@ -331,8 +342,12 @@ JourneyMasterOther = nil
     True 'snapshot written' ($snap -match 'revision = 1,')
     True 'snapshot confirms the stored entries' ($snap -match 'confirmed = 11,')
 
-    # The game closes: the dungeon session is summarised with its chat log lines.
+    # The game closes soon after the logout: the session waits 30 minutes, in case the player logs back in.
     $out = & $run ($T + 900) 'no'
+    Check 'a logout with the game closed waits 30 minutes' @(Get-ChildItem (Join-Path $charDir 'sessions')).Count 1
+
+    # 30 minutes on: the dungeon session is summarised with its chat log lines.
+    $out = & $run ($T + 2600) 'no'
     $files = @(Get-ChildItem (Join-Path $charDir 'sessions') | Sort-Object Name)
     Check 'two sessions summarised' $files.Count 2
     $prompt = Get-Content -Raw (Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Index $firstCalls).FullName
@@ -361,21 +376,32 @@ JourneyMasterOther = nil
     Check 'thumbnail folder named safely' $thumbs[0].Directory.Name 'Baldrake_Cavendell-LivingFlame'
     True 'snapshot lists the thumbnail' ($snap -match 'shots = \{ \{ name = ')
 
-    # The game's "Open screenshots on PC" button: the request is answered once.
-    $char.openShots = [ordered]@{ t = $T + 950; s = 2 }
-    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
-    $out = & $run ($T + 960) 'no'
-    True 'open request answered with the screenshot' ($out -match 'opening .*screenshots\\2026-11-12_\d{6}-level\.jpg, as asked')
-    $out = & $run ($T + 970) 'no'
-    True 'open request answered only once' ($out -notmatch 'as asked in the game')
-    $char.Remove('openShots')
-    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    # The game's buttons reach the app through the chat log: only what was added since the app's last look is read.
+    $gameLog = Join-Path $wow 'Logs\WoWChatLog.txt'
+    $from = (Get-Item $gameLog).Length
+    $stampNow = (ConvertFrom-Epoch ($T + 2650)).ToString('M/d HH:mm:ss.fff') + '  '
+    $added = @(
+        ($stampNow + 'JMS:9-1:OPEN:2:Baldrake Cavendell-LivingFlame'),
+        ($stampNow + 'JMS:9-1:OPEN:2:Baldrake Cavendell-LivingFlame'),
+        ($stampNow + 'JMP:9-1:00001:' + ('.' * 186)),
+        ($stampNow + 'Mallory says: JMS:9-2:OPEN:1:Baldrake Cavendell-LivingFlame'),
+        ($stampNow + 'JMS:9-3:END:3:Baldrake Cavendell-LivingFlame'),
+        ($stampNow + 'JMS:9-4:OPEN:1:Nobody-Realm')
+    )
+    [IO.File]::AppendAllText($gameLog, ($added -join "`r`n") + "`r`n", $Utf8)
+    $out = & $run ($T + 2660) 'no' @('-SignalsFrom', "$from")
+    Check 'open signal answered once, with the screenshot' ([regex]::Matches($out, 'opening .*screenshots\\2026-11-12_\d{6}-level\.jpg, as asked').Count) 1
+    True 'a player saying a signal opens nothing' ($out -notmatch 'opening .*Screenshots, as asked')
+    True 'finish signal noted' ($out -match 'session 3 finished in the game')
+    True 'unknown character reported' ($out -match 'Nobody-Realm, a character the app has no record of')
+    $out = & $run ($T + 2670) 'no'
+    True 'old signals not acted on by a later run' ($out -notmatch 'as asked in the game')
 
     # A player's edit to a session file is kept and shown in the snapshot; a rerun changes nothing and calls no AI.
     $edited = (Read-FileText $files[0].FullName) + "`nAdded by hand.`n"
     [IO.File]::WriteAllText($files[0].FullName, $edited, $Utf8)
     $before = @(Get-ChildItem $calls).Count
-    $out = & $run ($T + 1000) 'no'
+    $out = & $run ($T + 2700) 'no'
     Check 'rerun calls no AI' @(Get-ChildItem $calls).Count $before
     Check 'edited file untouched' (Read-FileText $files[0].FullName) $edited
 
@@ -383,7 +409,7 @@ JourneyMasterOther = nil
     $env:FAKE_CLAUDE_INVENT = '1'
     $long = @(@{ i = 12; s = 3; t = $T + 5000; k = 'login'; lvl = 27; z = 'Elwynn Forest' })
     for ($n = 0; $n -lt 40; $n++) { $long += @{ i = 13 + $n; s = 3; t = $T + 5010 + $n * 10; k = 'chat'; ch = 'say'; who = 'Shelly Whitemoon'; text = "Line number $n of a long evening in Goldshire."; z = 'Elwynn Forest' } }
-    $long += @{ i = 53; s = 3; t = $T + 5500; k = 'logout'; z = 'Elwynn Forest' }
+    $long += @{ i = 53; s = 3; t = $T + 5500; k = 'end'; z = 'Elwynn Forest' } # finished by the player: summarised at once
     $char.entries = @($session1 + $session2 + $long)
     $char.seq = 53
     Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }

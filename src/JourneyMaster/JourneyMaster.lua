@@ -44,6 +44,7 @@ ns.HELP = {
     "/jm - open or close the journal",
     "/jm log - open the Log tab",
     "/jm note <text> - add a note to the record (what the game cannot see)",
+    "/jm end - finish this session now, so the app can summarise it without waiting 30 minutes",
     "/jm minimap - show or hide the minimap button",
     "/jm keep <n> - recent sessions whose record stays in the add-on once the app has stored it (now %s)",
     "/jm reloadhours <n> - hours of play before the reload prompt, when that setting is on (now %s)",
@@ -62,6 +63,8 @@ function ns.Command(msg)
         ns.Window.ShowTab("log")
     elseif cmd == "note" then
         if Rec.Note(rest) then say("note added.") else say("type the note after /jm note.") end
+    elseif cmd == "end" then
+        ns.Window.FinishSession()
     elseif cmd == "minimap" then
         c.settings.minimapButton = not Rec.Setting("minimapButton")
         ns.Minimap.Refresh()

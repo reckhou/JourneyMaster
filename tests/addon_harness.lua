@@ -228,10 +228,18 @@ ns.journalSnapshot.characters["Baldrake Cavendell-LivingFlame"].sessions[1].text
 ns.Window.Select(s1)
 ns.Window.SelectTab("journal")
 eq(#ns.Window.State().items[1].shots, 1, "shots reach the session list")
+-- "Open screenshots" signals the app through the chat log: one signal line, then about 48 KiB of padding, all hidden.
+W.system = {}
 ns.Window.RequestShots()
-eq(c.openShots.s, s1, "open request names the session")
-eq(c.openShots.t, W.now, "open request carries its time")
-eq(W.popup, "JOURNEYMASTER_OPEN_SHOTS", "reload offered for the open request")
+W.RunSignalTickers()
+check(W.system[1]:find("^JMS:[%w-]+:OPEN:" .. s1 .. ":Baldrake Cavendell%-LivingFlame$"), "open signal names the session and character: " .. tostring(W.system[1]))
+local padBytes = 0
+for i = 2, #W.system do padBytes = padBytes + #W.system[i] check(W.system[i]:find("^JMP:"), "padding line") end
+check(padBytes >= 48 * 1024, "at least 48 KiB of padding")
+check(not table.concat(W.system):find("|", 1, true), "no | in signal lines")
+eq(W.filters.CHAT_MSG_SYSTEM(nil, "CHAT_MSG_SYSTEM", W.system[1]), true, "signal line hidden from the chat window")
+eq(W.filters.CHAT_MSG_SYSTEM(nil, "CHAT_MSG_SYSTEM", "You are now Away."), false, "other system lines shown")
+eq(c.openShots, nil, "no request left in the saved data")
 -- A new session starts; at the next login the stored session is trimmed, as it is no longer among the newest kept.
 c.settings.keepSessions = 1
 tick(4000)
@@ -248,6 +256,27 @@ eq(#st.items, 2, "summarised session and new session both listed")
 eq(st.items[2].entries, 0, "trimmed session has no entries left in the add-on")
 ns.Window.SelectTab("log")
 ns.Window.Select(s1)
+
+-- Sessions: logging out and back in within 30 minutes stays in the session; /jm end finishes it at once.
+local sNow = c.session
+tick(600)
+fire("PLAYER_LOGOUT")
+tick(600)
+fire("PLAYER_ENTERING_WORLD", true, false)
+eq(c.session, sNow, "login within 30 minutes stays in the session")
+W.system = {}
+ns.Command("end")
+W.RunSignalTickers()
+eq(last().k, "end", "finish recorded")
+eq(last().s, sNow, "finish belongs to the finished session")
+check(W.system[1]:find(":END:" .. sNow .. ":", 1, true), "finish signalled to the app")
+eq(W.popup, "JOURNEYMASTER_FINISHED", "reload offered after finishing")
+tick(5)
+ns.Command("note first thing after the end")
+eq(c.session, sNow + 1, "the next entry starts a new session")
+tick(1801)
+ns.Command("note after a long break")
+eq(c.session, sNow + 2, "a 30-minute gap starts a new session")
 
 -- Reload prompt ------------------------------------------------------------------------------------------------------------
 c.settings.reloadPrompt = true

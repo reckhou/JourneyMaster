@@ -10,7 +10,11 @@ Each run (or each change of the add-on's saved file, with -Watch):
      windows from the game's chat log, has the AI write the summary (in parts for a very long session), and saves it as
      <DataDir>\journeys\<character>\sessions\<date>-<n>.md with its screenshots. A session file is never touched again.
   3. Rewrites the journey overview (overview.md) and the whole-journal export (journal.md).
-  4. Writes JournalSnapshot.lua into the add-on's folder; the game shows it at the next /reload or login.
+  4. Writes JournalSnapshot.lua into the add-on's folder, with thumbnails of the newest sessions' screenshots; the game
+     shows it at the next /reload or login.
+A session is finished 30 minutes after its last entry (a logout alone does not finish it), or at once when the player
+finishes it in the game. With -Watch the app also reads the add-on's signals from the end of the chat log every 2 seconds
+(Open screenshots, Finish session; see src\JourneyMaster\Signal.lua).
 Examples:
   powershell -NoProfile -ExecutionPolicy Bypass -File src\App\JourneyMaster.ps1
   powershell -NoProfile -ExecutionPolicy Bypass -File src\App\JourneyMaster.ps1 -Watch
@@ -36,7 +40,8 @@ param(
     [int]$PollSeconds = 15,
     [switch]$Export,           # only write journal.md for every character, then stop
     [switch]$NoOverview,
-    [switch]$NoExplorer,       # do not open File Explorer for the game's "Open screenshots on PC" button (for tests)
+    [switch]$NoExplorer,
+    [long]$SignalsFrom = -1,   # for tests: in a single run, also act on chat log signals from this byte on       # do not open File Explorer for the game's "Open screenshots on PC" button (for tests)
     [ValidateSet('auto', 'yes', 'no')][string]$GameRunning = 'auto',
     [long]$Now = 0,            # epoch seconds, for tests
     [switch]$DebugMode
@@ -150,12 +155,50 @@ function Import-SavedVariables([string]$Path) {
             Say "$key`: the add-on dropped $($sv['dropped']) entries at its size cap" 'Yellow'
             $c.Dropped = [long]$sv['dropped']
         }
-        # The game's "Open screenshots on PC" button: each request (its time) is answered once.
-        $req = $sv['openShots']
-        if ($req -is [Collections.IDictionary] -and [long]$req['t'] -gt [long]$c['OpenShotsDone']) {
-            $c.OpenShotsDone = [long]$req['t']
-            Open-SessionShots $key $c ([long]$req['s'])
-        }
+    }
+}
+
+# Signals from the add-on through the chat log (see src\JourneyMaster\Signal.lua) -----------------------------------------
+# The add-on writes a signal line and about 48 KiB of padding, so the game writes the chat log to disk about a second
+# later. In watch mode the app reads what was added to the file since its last look. It starts at the file's end, so
+# signals sent while the app was not running are not acted on later.
+
+$script:LogPos = -1     # bytes of the chat log already read; -1 until the first look
+$script:LogRest = ''    # an unfinished last line, kept for the next look
+$script:SignalsDone = @{}
+
+function Read-Signals {
+    if (-not (Test-Path -LiteralPath $ChatLog)) { return }
+    $len = (Get-Item -LiteralPath $ChatLog).Length
+    if ($script:LogPos -lt 0) { $script:LogPos = $len; return }
+    if ($len -lt $script:LogPos) { $script:LogPos = 0; $script:LogRest = '' } # a new or emptied file
+    if ($len -eq $script:LogPos) { return }
+    $fs = New-Object IO.FileStream($ChatLog, 'Open', 'Read', 'ReadWrite, Delete')
+    try {
+        [void]$fs.Seek($script:LogPos, 'Begin')
+        $buf = New-Object byte[] ($len - $script:LogPos)
+        $got = 0
+        while ($got -lt $buf.Length) { $n = $fs.Read($buf, $got, $buf.Length - $got); if ($n -le 0) { break }; $got += $n }
+    } finally { $fs.Dispose() }
+    $script:LogPos += $got
+    $lines = ($script:LogRest + [Text.Encoding]::UTF8.GetString($buf, 0, $got)) -split "`n"
+    $script:LogRest = $lines[-1]
+    for ($i = 0; $i -lt $lines.Count - 1; $i++) {
+        $line = $lines[$i]
+        $sig = ConvertFrom-SignalLine $line
+        if (-not $sig -or $script:SignalsDone.ContainsKey($sig.Id)) { continue }
+        $script:SignalsDone[$sig.Id] = $true
+        Invoke-Signal $sig
+    }
+}
+
+function Invoke-Signal($Sig) {
+    if (-not $State.Characters.ContainsKey($Sig.Key)) { Say "a signal for $($Sig.Key), a character the app has no record of yet" 'Yellow'; return }
+    $c = $State.Characters[$Sig.Key]
+    switch ($Sig.Kind) {
+        'OPEN' { Open-SessionShots $Sig.Key $c $Sig.S }
+        'END' { Say "$($Sig.Key)`: session $($Sig.S) finished in the game; it is summarised once the game writes the record (at /reload or logout)" 'Cyan' }
+        default { Dbg "unknown signal $($Sig.Kind)" }
     }
 }
 
@@ -428,22 +471,33 @@ function Invoke-Once {
     Save-State
 }
 
-if (-not $Watch) { Invoke-Once; return }
+if (-not $Watch) {
+    Invoke-Once
+    if ($SignalsFrom -ge 0) { $script:LogPos = $SignalsFrom; Read-Signals }
+    return
+}
 
-Say "watching for changes every $PollSeconds seconds; Ctrl+C stops" 'Cyan'
+Say "watching for changes every $PollSeconds seconds, and for the game's buttons every 2 seconds; Ctrl+C stops" 'Cyan'
 $lastStamp = ''
 $lastCheck = 0
+$lastPoll = 0
+Read-Signals # the first look only notes where the chat log ends
 while ($true) {
-    $sv = Find-SavedVariables
-    $stamp = if ($sv -and (Test-Path -LiteralPath $sv)) { (Get-Item -LiteralPath $sv).LastWriteTimeUtc.Ticks } else { '' }
-    $running = Test-GameRunning
-    # Run when the saved file changes, and every few minutes anyway: a session also finishes by time, and a dungeon
-    # session waits for the game to close.
-    if ($stamp -ne $lastStamp -or ((NowEpoch) - $lastCheck) -gt 300 -or ($script:WasRunning -and -not $running)) {
-        try { Invoke-Once } catch { Say "error: $_" 'Red' }
-        $lastStamp = $stamp
-        $lastCheck = NowEpoch
+    # The game's buttons (Open screenshots, Finish session) arrive through the chat log within a few seconds.
+    try { Read-Signals } catch { Say "error reading the chat log: $_" 'Red' }
+    if (((NowEpoch) - $lastPoll) -ge $PollSeconds) {
+        $lastPoll = NowEpoch
+        $sv = Find-SavedVariables
+        $stamp = if ($sv -and (Test-Path -LiteralPath $sv)) { (Get-Item -LiteralPath $sv).LastWriteTimeUtc.Ticks } else { '' }
+        $running = Test-GameRunning
+        # Run when the saved file changes, and every few minutes anyway: a session also finishes by time, and a dungeon
+        # session waits for the game to close.
+        if ($stamp -ne $lastStamp -or ((NowEpoch) - $lastCheck) -gt 300 -or ($script:WasRunning -and -not $running)) {
+            try { Invoke-Once } catch { Say "error: $_" 'Red' }
+            $lastStamp = $stamp
+            $lastCheck = NowEpoch
+        }
+        $script:WasRunning = $running
     }
-    $script:WasRunning = $running
-    Start-Sleep -Seconds $PollSeconds
+    Start-Sleep -Seconds 2
 }

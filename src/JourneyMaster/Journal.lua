@@ -139,9 +139,10 @@ function Journal.JournalBlocks(key, item)
         blocks[#blocks + 1] = { gap = 4, text = GREY .. "Its record was trimmed from the add-on and is kept under events\\ in the same folder.|r" }
     else
         blocks[#blocks + 1] = { gap = 8, text = "Not summarised yet." }
-        blocks[#blocks + 1] = { gap = 4, text = GREY .. "The summary arrives at the next /reload or login after the session ends "
-            .. "(a logout, or 30 minutes without play) and the JourneyMaster app on your PC has run. "
-            .. "The Log tab shows this session's record now.|r" }
+        blocks[#blocks + 1] = { gap = 4, text = GREY .. "A session ends after 30 minutes without play, or when you finish it "
+            .. "(the Finish session button, or /jm end). Logging out and back in sooner keeps the same session. Once it has "
+            .. "ended and the game has written the record (at a /reload or logout), the JourneyMaster app on your PC summarises "
+            .. "it, and the summary shows here at your next /reload or login. The Log tab shows this session's record now.|r" }
     end
     return blocks
 end

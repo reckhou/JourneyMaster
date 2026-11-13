@@ -124,32 +124,47 @@ local function hasShots(item)
     return false
 end
 
+-- Whether a session is the one being played (it can be finished early).
+local function isCurrent(item)
+    local c = rec().Char()
+    return item and c and item.state == "pending" and item.s == c.session and not c.endSession or false
+end
+
+-- The foot: the counts on the left, then the buttons from the right: reload, then Finish session and Open
+-- screenshots when they apply to the chosen session.
 local function showFooter()
     local c = rec().Char()
     local n = c and #c.entries or 0
-    footer.text:SetText(n .. " entries recorded" .. "   \194\183   Last summary: " .. (Journal.LastSummaryDate() or "none yet"))
-    local shots = tab ~= "settings" and hasShots(currentItem())
+    footer.text:SetText(n .. " entries \194\183 last summary " .. (Journal.LastSummaryDate() or "none yet"))
+    local item = currentItem()
+    local finish = tab ~= "settings" and isCurrent(item)
+    local shots = tab ~= "settings" and hasShots(item)
+    local anchor = footer.reload
+    footer.finish:SetShown(finish)
+    if finish then footer.finish:SetPoint("RIGHT", anchor, "LEFT", -6, 0) anchor = footer.finish end
     footer.shots:SetShown(shots)
-    footer.text:SetPoint("RIGHT", shots and footer.shots or footer.reload, "LEFT", -10, 0)
+    if shots then footer.shots:SetPoint("RIGHT", anchor, "LEFT", -6, 0) anchor = footer.shots end
+    footer.text:SetPoint("RIGHT", anchor, "LEFT", -10, 0)
 end
 
--- The "Open screenshots on PC" button: the add-on cannot open folders, so it leaves a request in its saved data for
--- the app, and offers the reload that writes the saved data to disk.
+-- The "Open screenshots" button: the add-on cannot open folders, so it signals the app through the chat log (Signal.lua).
 local function requestShots()
-    local item, c = currentItem(), rec().Char()
-    if not (item and c) then return end
-    c.openShots = { t = time(), s = item.s }
-    if StaticPopupDialogs and StaticPopup_Show then
-        StaticPopupDialogs.JOURNEYMASTER_OPEN_SHOTS = StaticPopupDialogs.JOURNEYMASTER_OPEN_SHOTS or {
-            text = "JourneyMaster: reload the interface now? The game then saves your request, and the JourneyMaster app on your PC opens this session's screenshots. The app must be running.",
-            button1 = "Reload", button2 = "Later",
-            OnAccept = function() ReloadUI() end,
-            timeout = 0, whileDead = true, hideOnEscape = true,
-        }
-        StaticPopup_Show("JOURNEYMASTER_OPEN_SHOTS")
+    local item = currentItem()
+    if not item then return end
+    if ns.Signal.Send("OPEN", item.s) then
+        ns.Say("asked the app on your PC to open this session's screenshots. It must be running.")
+    else
+        ns.Say("still sending the last request: try again in a moment.")
     end
 end
 Window.RequestShots = requestShots
+
+local function finishSession()
+    local ok, why = ns.Signal.FinishSession()
+    if not ok then ns.Say(why) end
+    Window.Refresh()
+end
+Window.FinishSession = finishSession
 
 -- Settings ---------------------------------------------------------------------------------------------------------
 
@@ -343,12 +358,16 @@ local function create()
     footer.reload:SetPoint("RIGHT", -10, -1)
     UI.Tooltip(footer.reload, "Reload the interface",
         "Loads the newest summaries from the app on your PC. The game also writes the record to disk, so the app can summarise it.")
-    footer.shots = UI.FlatButton(footer, "Open screenshots on PC", "GameFontNormalSmall", C.raised, C.edge, C.soft, 12, 20)
+    footer.shots = UI.FlatButton(footer, "Open screenshots", "GameFontNormalSmall", C.raised, C.edge, C.soft, 10, 20)
     footer.shots:SetScript("OnClick", requestShots)
-    footer.shots:SetPoint("RIGHT", footer.reload, "LEFT", -6, 0)
     footer.shots:Hide()
     UI.Tooltip(footer.shots, "Open screenshots on PC",
-        "The JourneyMaster app on your PC opens this session's screenshots in File Explorer, after a reload. The app must be running.")
+        "The JourneyMaster app on your PC opens this session's screenshots in File Explorer, a few seconds after the click. The app must be running.")
+    footer.finish = UI.FlatButton(footer, "Finish session", "GameFontNormalSmall", C.raised, C.edge, C.soft, 10, 20)
+    footer.finish:SetScript("OnClick", finishSession)
+    footer.finish:Hide()
+    UI.Tooltip(footer.finish, "Finish this session",
+        "Ends the session now, so the app can summarise it without waiting 30 minutes. Whatever you do next starts a new session. Also /jm end.")
     footer.text = footer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     footer.text:SetPoint("LEFT", 10, -1)
     footer.text:SetPoint("RIGHT", footer.reload, "LEFT", -10, 0)
