@@ -156,22 +156,32 @@ end
 
 local SHOT_RETRY, SHOT_TRIES = 5, 24 -- while flying, try again every 5 seconds for up to 2 minutes, then give up
 
-function Rec.Shot(why, zone)
-    if not Rec.Setting("screenshots") or type(Screenshot) ~= "function" then return end
+-- A zone screenshot passes the outdoor zone (zone): it is taken only if the player is still there, and its entry names
+-- that zone even when the player has stepped into a building. done(taken) is called once: true after the screenshot,
+-- false when it is given up.
+function Rec.Shot(why, zone, done)
+    local function finish(taken) if done then done(taken) end end
+    if not Rec.Setting("screenshots") or type(Screenshot) ~= "function" then return finish(false) end
     local tries = 0
     local take
     take = function()
+        if zone and Rec.StayZone() ~= zone then return finish(false) end
         if Rec.Flying() then
             tries = tries + 1
-            if tries < SHOT_TRIES and C_Timer and C_Timer.After then C_Timer.After(SHOT_RETRY, Rec.Guard("screenshot", take)) end
+            if tries < SHOT_TRIES and C_Timer and C_Timer.After then
+                C_Timer.After(SHOT_RETRY, Rec.Guard("screenshot", take))
+            else
+                finish(false)
+            end
             return
         end
         if Rec.Try("screenshot", Screenshot) then
-            -- A first-visit screenshot names the outdoor zone, even when the player has stepped into a building.
             local e = { k = "shot", why = why }
             if zone then e.z, e.sz = zone, (select(2, where())) end
             Add(e)
+            return finish(true)
         end
+        finish(false)
     end
     if C_Timer and C_Timer.After then C_Timer.After(1.5, Rec.Guard("screenshot", take)) else Rec.Try("screenshot", take) end
 end
@@ -234,11 +244,15 @@ end
 
 -- Zones ----------------------------------------------------------------------------------------------------------
 
--- The screenshot of a zone's first visit waits until the player has stayed in the zone for ZONE_STAY seconds (owner's
--- decision, 13 November 2026), so passing through, or crossing it on a flight path, takes none. A zone counts as seen
--- for ZONE_COOLDOWN seconds after its screenshot is taken (owner's decision, 13 November 2026): zonesSeen keeps the
--- time of that screenshot, and a later stay takes a new one ("zone", not "new zone"). Leaving the zone before the
--- screenshot means the next visit tries again. Saved values of true (from before the cooldown) count as long ago.
+-- Two kinds of zone screenshot (owner's decision, 13 November 2026):
+-- 1. First visit ("new zone"): taken on arriving in an outdoor zone the character has never been in. zonesVisited keeps
+--    the time of that screenshot. A zone in zonesSeen counts as visited too (saved before zonesVisited existed). While
+--    flying it waits for the landing, as other screenshots do; if the player has left the zone by then, none is taken
+--    and the next arrival tries again. Dungeons and raids take none: they have their own entry screenshot.
+-- 2. Stay ("zone"): the screenshot of a stay waits until the player has stayed in the zone for ZONE_STAY seconds, so
+--    passing through, or crossing it on a flight path, takes none. A zone counts as seen for ZONE_COOLDOWN seconds
+--    after its stay screenshot: zonesSeen keeps the time of that screenshot, and a later stay takes a new one. Leaving
+--    the zone before the screenshot means the next visit tries again. Saved values of true count as long ago.
 -- After any flight seen during the wait, the screenshot also waits LANDED seconds on the ground (owner's decision,
 -- 13 November 2026), so it shows the place and not the dismount. The wait is checked every ZONE_POLL seconds, which is how flight is noticed.
 Rec.ZONE_STAY, Rec.ZONE_LANDED, Rec.ZONE_POLL, Rec.ZONE_COOLDOWN = 300, 60, 15, 3600
@@ -260,9 +274,21 @@ local function zoneShotDue(token)
         return
     end
     zoneWait = nil
-    local why = char.zonesSeen[z] and "zone" or "new zone"
     char.zonesSeen[z] = t
-    Rec.Shot(why, z)
+    Rec.Shot("zone", z)
+end
+
+local arriving -- the zone whose first-visit screenshot is on its way
+
+local function firstVisit(z)
+    if char.zonesVisited[z] or char.zonesSeen[z] or arriving == z then return end
+    local _, itype = call(IsInInstance)
+    if itype == "party" or itype == "raid" then return end
+    arriving = z
+    Rec.Shot("new zone", z, function(taken)
+        if arriving == z then arriving = nil end
+        if taken then char.zonesVisited[z] = now() end
+    end)
 end
 
 function Rec.CheckZone()
@@ -272,6 +298,7 @@ function Rec.CheckZone()
     if e and ns.Window and ns.Window.OnNewEntry then ns.Window.OnNewEntry(e) end
     local stay = Rec.StayZone() -- the outdoor zone: a step into a building does not end the wait
     if not stay then return end
+    firstVisit(stay)
     if zoneWait and zoneWait.z ~= stay then zoneWait = nil end
     if not zoneSeen(stay) and not zoneWait and Rec.Setting("screenshots") and C_Timer and C_Timer.After then
         local token = {}

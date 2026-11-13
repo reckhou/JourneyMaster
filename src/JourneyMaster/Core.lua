@@ -255,12 +255,13 @@ function Core.Char(db, key)
     local c = db.characters[key]
     if not c then
         c = { seq = 0, session = 0, lastT = 0, entries = {}, dropped = 0, trimmed = 0, settings = {}, zonesSeen = {},
-              moneyMark = 0, skills = {} }
+              zonesVisited = {}, moneyMark = 0, skills = {} }
         db.characters[key] = c
     end
     c.entries = c.entries or {}
     c.settings = c.settings or {}
     c.zonesSeen = c.zonesSeen or {}
+    c.zonesVisited = c.zonesVisited or {}
     c.skills = c.skills or {}
     for k, v in pairs(Core.DEFAULTS) do
         if c.settings[k] == nil then c.settings[k] = v end

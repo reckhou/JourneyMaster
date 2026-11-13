@@ -35,52 +35,69 @@ fire("PLAYER_ENTERING_WORLD", true, false)
 eq(c.entries[1].k, "login", "login entry") eq(c.entries[2].k, "zone", "zone entry")
 eq(c.entries[2].z, "Elwynn Forest", "zone name")
 W.RunTimers()
-eq(W.shots, 0, "no screenshot on arriving in a zone")
+eq(W.shots, 1, "first visit to a zone: screenshot on arriving")
+eq(last().k, "shot", "screenshot recorded")
+eq(last().why, "new zone", "first-visit screenshot reason")
+check(c.zonesVisited["Elwynn Forest"], "the zone counts as visited")
 tick(300)
 W.RunTimers() -- 5 minutes in the zone
 W.RunTimers() -- the screenshot, a moment later
-eq(W.shots, 1, "first visit to a zone: screenshot after 5 minutes there")
-eq(last().k, "shot", "screenshot recorded")
-eq(last().why, "new zone", "screenshot reason")
+eq(W.shots, 2, "a stay in a zone: screenshot after 5 minutes there")
+eq(last().why, "zone", "stay screenshot reason")
 
--- Passing through a zone takes no screenshot; flying puts a screenshot off until the player lands.
+-- Passing through a zone takes only its first-visit screenshot; flying puts a screenshot off until the player lands.
 W.zone = "Westfall"
 fire("ZONE_CHANGED_NEW_AREA")
 W.RunTimers()
+eq(W.shots, 3, "first visit to Westfall: screenshot on arriving")
 tick(100)
 W.zone = "Elwynn Forest"
 fire("ZONE_CHANGED_NEW_AREA")
+W.RunTimers()
+eq(W.shots, 3, "back in a visited zone: no first-visit screenshot")
 tick(300)
 W.RunTimers() W.RunTimers()
-eq(W.shots, 1, "left a zone within 5 minutes: no screenshot")
-check(not c.zonesSeen["Westfall"], "a zone passed through is not counted as seen")
+eq(W.shots, 3, "left a zone within 5 minutes: no stay screenshot")
+check(not c.zonesSeen["Westfall"] and c.zonesVisited["Westfall"], "a zone passed through is visited, not seen")
 W.flying = true
 W.zone = "Redridge Mountains"
 fire("ZONE_CHANGED_NEW_AREA")
 tick(300)
 W.RunTimers() W.RunTimers()
-eq(W.shots, 1, "no zone screenshot while flying")
+eq(W.shots, 3, "no zone screenshot while flying")
 W.flying = false
 tick(15)
 W.RunTimers() W.RunTimers()
-eq(W.shots, 1, "no zone screenshot within a minute of landing")
+eq(W.shots, 4, "first-visit screenshot once landed")
+eq(last().why, "new zone", "the landed screenshot is the first visit")
 tick(30)
 W.flying = true -- took off again: the minute starts over
 W.RunTimers() W.RunTimers()
 W.flying = false
 tick(45)
 W.RunTimers() W.RunTimers()
-eq(W.shots, 1, "the minute on the ground starts over after another flight")
+eq(W.shots, 4, "the minute on the ground starts over after another flight")
 tick(15)
 W.RunTimers() W.RunTimers()
-eq(W.shots, 2, "zone screenshot a minute after landing")
+eq(W.shots, 5, "stay screenshot a minute after landing")
 W.flying = true
 ns.Recorder.Shot("level")
 W.RunTimers() W.RunTimers()
-eq(W.shots, 2, "no level-up screenshot while flying")
+eq(W.shots, 5, "no level-up screenshot while flying")
 W.flying = false
 W.RunTimers() W.RunTimers()
-eq(W.shots, 3, "level-up screenshot once landed")
+eq(W.shots, 6, "level-up screenshot once landed")
+-- Crossing a new zone in flight: no screenshot, and the zone is still new at the next arrival.
+W.flying = true
+W.zone = "Badlands"
+fire("ZONE_CHANGED_NEW_AREA")
+W.RunTimers()
+W.zone = "Elwynn Forest"
+fire("ZONE_CHANGED_NEW_AREA")
+W.flying = false
+W.RunTimers() W.RunTimers()
+eq(W.shots, 6, "a zone left before landing: no first-visit screenshot")
+check(not c.zonesVisited["Badlands"], "a zone crossed in flight is not counted as visited")
 W.zone = "Elwynn Forest"
 fire("ZONE_CHANGED_NEW_AREA")
 
@@ -93,6 +110,7 @@ W.maps = {
 W.zone, W.sub, W.mapID = "Duskwood", "Darkshire", 10
 fire("ZONE_CHANGED_NEW_AREA")
 W.RunTimers()
+eq(W.shots, 7, "first visit to Duskwood: screenshot on arriving")
 tick(100)
 W.zone, W.sub, W.mapID = "Scarlet Raven Tavern", "", 11 -- inside, on a map of its own
 fire("ZONE_CHANGED_NEW_AREA")
@@ -103,13 +121,14 @@ fire("ZONE_CHANGED_NEW_AREA")
 W.RunTimers()
 tick(95)
 W.RunTimers()
-eq(W.shots, 3, "the wait for Duskwood is not over yet")
+eq(W.shots, 7, "the wait for Duskwood is not over yet, and buildings take no first-visit screenshot")
 tick(10)
 W.RunTimers() W.RunTimers()
-eq(W.shots, 4, "interior names do not end the wait: first visit to Duskwood after 5 minutes")
+eq(W.shots, 8, "interior names do not end the wait: stay screenshot in Duskwood after 5 minutes")
 eq(last().z, "Duskwood", "the screenshot names the outdoor zone, not the building")
 check(c.zonesSeen["Duskwood"] and not c.zonesSeen["Darkshire Town Hall"] and not c.zonesSeen["Scarlet Raven Tavern"],
     "the outdoor zone is the one counted as seen")
+check(not c.zonesVisited["Darkshire Town Hall"] and not c.zonesVisited["Scarlet Raven Tavern"], "buildings are not visited zones")
 -- Moving between outdoor places of one zone (subzones) never ended the wait either, and leaving the zone still does.
 W.zone, W.sub, W.mapID = "Redridge Mountains", "Lakeshire", 20
 W.maps[20] = { name = "Redridge Mountains", mapType = 3, parentMapID = 12 }
@@ -122,7 +141,7 @@ W.zone, W.sub, W.mapID = "Duskwood", "Darkshire", 10
 fire("ZONE_CHANGED_NEW_AREA")
 tick(300)
 W.RunTimers() W.RunTimers()
-eq(W.shots, 4, "leaving the zone within 5 minutes still takes no screenshot")
+eq(W.shots, 8, "leaving the zone within 5 minutes still takes no screenshot")
 -- A dungeon keeps its own name (its own first-visit screenshot is the dungeon one, not its entrance's zone).
 W.maps[30] = { name = "The Stockade", mapType = 4, parentMapID = 40 }
 W.maps[40] = { name = "Stormwind City", mapType = 3, parentMapID = 12 }
@@ -158,6 +177,11 @@ fire("ZONE_CHANGED_NEW_AREA")
 tick(300)
 W.RunTimers() W.RunTimers()
 eq(W.shots, shots + 2, "an old saved zone (true) counts as seen long ago")
+c.zonesSeen["Stranglethorn Vale"] = true -- saved before first visits were kept apart
+W.zone = "Stranglethorn Vale"
+fire("ZONE_CHANGED_NEW_AREA")
+W.RunTimers() W.RunTimers()
+eq(W.shots, shots + 2, "a zone saved as seen counts as visited: no first-visit screenshot")
 W.zone = "Elwynn Forest"
 fire("ZONE_CHANGED_NEW_AREA")
 
@@ -240,6 +264,9 @@ fire("PLAYER_ENTERING_WORLD", false, false)
 local enter
 for i = #c.entries, 1, -1 do if c.entries[i].k == "enter" then enter = c.entries[i] break end end
 check(enter and enter.inst == "The Stockade", "dungeon entry recorded")
+W.RunTimers()
+eq(last().why, "dungeon", "a dungeon takes its entry screenshot")
+check(not c.zonesVisited["The Stockade"], "a dungeon takes no first-visit screenshot")
 tick()
 fire("BOSS_KILL", 1, "Bazil Thredd")
 fire("ENCOUNTER_END", 1, "Bazil Thredd", 1, 5, 1)

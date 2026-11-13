@@ -392,7 +392,7 @@ function Save-Screenshots($c, $Session) {
         $name = $t.ToString('yyyy-MM-dd_HHmmss') + '-' + (($why -replace '[^a-zA-Z0-9]+', '-').Trim('-')) + [IO.Path]::GetExtension($src)
         $dest = Join-Path $dir $name
         if (-not (Test-Path -LiteralPath $dest)) { Copy-Item -LiteralPath $src -Destination $dest }
-        $label = switch ($why) { 'level' { 'Level up' } 'boss' { 'Boss defeated' } 'dungeon' { 'Entering a dungeon' } 'new zone' { "First visit to $(Get-Field $e 'z')" } 'zone' { "Back in $(Get-Field $e 'z')" } default { $why } }
+        $label = switch ($why) { 'level' { 'Level up' } 'boss' { 'Boss defeated' } 'dungeon' { 'Entering a dungeon' } 'new zone' { "First visit to $(Get-Field $e 'z')" } 'zone' { "Exploring $(Get-Field $e 'z')" } default { $why } }
         $shots += [pscustomobject]@{ Path = "../screenshots/$name"; Caption = "$label, $($t.ToString('HH:mm'))" }
     }
     $shots
