@@ -1,0 +1,84 @@
+# JourneyMaster
+
+JourneyMaster keeps a journal of your character's journey in WoW: Forever (World of Warcraft: Forever). An add-on records what your character does while you play, without any input from you. After each play session, a small app on your PC has the AI (artificial intelligence) write a plain account of that session. You read the journal in the game and as Markdown files on your PC.
+
+Every character gets the same neutral narrator: third person, past tense, factual. It writes only what the record holds and invents nothing.
+
+## What you need
+
+- WoW: Forever on Windows (client 1.60.1, interface 16001).
+- Windows PowerShell 5.1, which comes with Windows 10 and 11.
+- [Claude Code](https://claude.com/claude-code), installed and signed in, so that the `claude` command works in a terminal. The app sends each session's record to the AI through this command, under your own account.
+
+## Install
+
+1. Copy the add-on into the game:
+
+   ```
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy_addon.ps1
+   ```
+
+   By default it copies to `E:\World of Warcraft\_forever_\Interface\AddOns`. Give `-AddOns "<your AddOns folder>"` for another path. The script never overwrites your journal snapshot in the installed add-on.
+
+2. Start the app, and leave it running while you play:
+
+   ```
+   scripts\run_app.bat
+   ```
+
+   The app looks for the game in `E:\World of Warcraft\_forever_`. If your game is somewhere else, give `-WowDir "<your _forever_ folder>"`.
+
+## How it works
+
+1. **In the game**, the add-on records zones, quests (with the quest's own text and the quest giver), what people near you say, NPC (non-player character) speech, deaths (with the killer when the game's death recap names one), bosses, dungeon entries and exits, rare loot, gear, group members, levels, skills, standing, money milestones and your own notes. It also takes a screenshot at level-ups, boss kills, dungeon entries and first visits to a zone.
+2. **The game writes the record to disk** at `/reload` or logout.
+3. **The app stores the new entries** under `data\journeys\<character>\events\`. This is the permanent record.
+4. **When a session ends** (a logout, or 30 minutes without play), the app has the AI write its summary as `data\journeys\<character>\sessions\<date>-<n>.md`. In dungeons and raids the game hides chat from add-ons, so the app fills those stretches from the game's own chat log, `Logs\WoWChatLog.txt`. The add-on turns chat logging on for this. A session file is never changed again once written, so you may edit it.
+5. **The app also writes** `overview.md` (the journey so far) and `journal.md` (the whole journal in one document), and gives the game a new snapshot of the summaries.
+6. **At your next `/reload` or login**, the summaries appear in the game.
+
+## In the game
+
+- Click the **minimap button** (a book), or type `/jm`, to open the journal. The add-on menu has an entry for it too.
+- The **session list** on the left drives both tabs. **Journal** shows a session's summary. **Log** shows its raw entries, with one on/off switch for each kind of entry. **Settings** has the switches for each chat channel, NPC speech, screenshots, the minimap button and a reload prompt.
+- `/jm note <text>` adds a note about something the game cannot see.
+- `/jm help` lists every command.
+
+## Your files
+
+Everything stays under `data\` in this folder. Git ignores it.
+
+| Path under `data\journeys\<character>\` | What it holds |
+| --- | --- |
+| `events\<date>.jsonl` | The permanent record, one entry per line |
+| `sessions\<date>-<n>.md` | One summary per play session |
+| `records\<date>-<n>.txt` | The exact record the AI was given for that session, so you can check a summary against it |
+| `screenshots\` | The milestone screenshots, linked from their sessions |
+| `overview.md` | The journey so far |
+| `journal.md` | The whole journal as one document (also written on request with `src\App\JourneyMaster.ps1 -Export`) |
+
+## Privacy
+
+- Nothing leaves your PC except the text sent to the AI through your own signed-in `claude` command.
+- The record includes other players' names and what they said in say, yell, emote, party, raid and instance chat near you. Whispers, guild, officer and numbered channels (General, Trade and the like) are never recorded.
+- Each chat channel can be switched off under Settings.
+
+## For developers
+
+| Path | What it is |
+| --- | --- |
+| `src/JourneyMaster/` | The add-on (Lua 5.1). `Core.lua` and `Journal.lua` hold the logic with no game calls |
+| `src/App/` | The app (Windows PowerShell 5.1). `JourneyMasterApp.psm1` holds the logic; `LuaReader.cs` reads the saved file |
+| `src/JourneyProbe/`, `scripts/probe_report.py` | The Phase 0 probe that checked what the game allows. It is not installed any more |
+| `tests/` | Offline harnesses |
+| `scripts/replay_sessions.ps1` | Runs a made-up journey through the app and checks that no summary invents or loses anything |
+
+Run the tests:
+
+```
+python scripts/run_lua_tests.py
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\app_harness.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\replay_sessions.ps1 -Fake
+```
+
+The Lua harnesses need Python with [Lupa](https://pypi.org/project/lupa/) (`pip install lupa`). The app harness and `-Fake` use a stand-in for `claude`, so they cost nothing. Without `-Fake`, the replay uses the real `claude`.
