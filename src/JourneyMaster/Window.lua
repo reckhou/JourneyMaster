@@ -112,11 +112,44 @@ local function showList()
     list.area:SetContentHeight(y)
 end
 
+-- Whether a session has screenshots: thumbnails from the app, or (not summarised yet) screenshot entries.
+local function hasShots(item)
+    if not item then return false end
+    if item.shots and #item.shots > 0 then return true end
+    if item.state ~= "pending" then return false end
+    local c = rec().Char()
+    for _, e in ipairs(Core.SessionEntries(c and c.entries or {}, item.s)) do
+        if e.k == "shot" then return true end
+    end
+    return false
+end
+
 local function showFooter()
     local c = rec().Char()
     local n = c and #c.entries or 0
     footer.text:SetText(n .. " entries recorded" .. "   \194\183   Last summary: " .. (Journal.LastSummaryDate() or "none yet"))
+    local shots = tab ~= "settings" and hasShots(currentItem())
+    footer.shots:SetShown(shots)
+    footer.text:SetPoint("RIGHT", shots and footer.shots or footer.reload, "LEFT", -10, 0)
 end
+
+-- The "Open screenshots on PC" button: the add-on cannot open folders, so it leaves a request in its saved data for
+-- the app, and offers the reload that writes the saved data to disk.
+local function requestShots()
+    local item, c = currentItem(), rec().Char()
+    if not (item and c) then return end
+    c.openShots = { t = time(), s = item.s }
+    if StaticPopupDialogs and StaticPopup_Show then
+        StaticPopupDialogs.JOURNEYMASTER_OPEN_SHOTS = StaticPopupDialogs.JOURNEYMASTER_OPEN_SHOTS or {
+            text = "JourneyMaster: reload the interface now? The game then saves your request, and the JourneyMaster app on your PC opens this session's screenshots. The app must be running.",
+            button1 = "Reload", button2 = "Later",
+            OnAccept = function() ReloadUI() end,
+            timeout = 0, whileDead = true, hideOnEscape = true,
+        }
+        StaticPopup_Show("JOURNEYMASTER_OPEN_SHOTS")
+    end
+end
+Window.RequestShots = requestShots
 
 -- Settings ---------------------------------------------------------------------------------------------------------
 
@@ -310,6 +343,12 @@ local function create()
     footer.reload:SetPoint("RIGHT", -10, -1)
     UI.Tooltip(footer.reload, "Reload the interface",
         "Loads the newest summaries from the app on your PC. The game also writes the record to disk, so the app can summarise it.")
+    footer.shots = UI.FlatButton(footer, "Open screenshots on PC", "GameFontNormalSmall", C.raised, C.edge, C.soft, 12, 20)
+    footer.shots:SetScript("OnClick", requestShots)
+    footer.shots:SetPoint("RIGHT", footer.reload, "LEFT", -6, 0)
+    footer.shots:Hide()
+    UI.Tooltip(footer.shots, "Open screenshots on PC",
+        "The JourneyMaster app on your PC opens this session's screenshots in File Explorer, after a reload. The app must be running.")
     footer.text = footer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     footer.text:SetPoint("LEFT", 10, -1)
     footer.text:SetPoint("RIGHT", footer.reload, "LEFT", -10, 0)
@@ -324,13 +363,13 @@ function Window.Refresh()
     if not (win and win:IsShown()) then return end
     local c = rec().Char()
     win.titleText:SetText("JourneyMaster" .. (c and (": " .. tostring(c.name)) or ""))
-    showFooter()
     if tab == "settings" then
         showSettings()
     else
         showList()
         showReader()
     end
+    showFooter() -- after the list, as its "Open screenshots on PC" button follows the chosen session
 end
 
 function Window.Show()

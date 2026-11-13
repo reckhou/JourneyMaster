@@ -239,24 +239,51 @@ JourneyMasterOther = nil
     Check 'second file of a day' (Get-SessionFileName $sessDir $T) '2026-11-12-2.md'
     $lua = New-JournalSnapshotLua ([pscustomobject]@{ Revision = 2; Written = $T; Characters = @(
         [pscustomobject]@{ Key = "Adra$([char]0xEB)l-Realm"; Confirmed = 9; Sessions = @(
-            [pscustomobject]@{ S = 2; Title = 'He said "end" ]] --'; First = $T; Last = $T + 5; Zones = @('Duskwood'); LevelFrom = 26; LevelTo = 27; File = 'data\x.md'; Text = "Line one`nLine two" },
+            [pscustomobject]@{ S = 2; Title = 'He said "end" ]] --'; First = $T; Last = $T + 5; Zones = @('Duskwood'); LevelFrom = 26; LevelTo = 27; File = 'data\x.md'; Text = "Line one`nLine two"
+                Shots = @([pscustomobject]@{ Name = 'a.jpg'; Thumb = 'Interface\AddOns\JourneyMaster\Thumbs\X\a'; W = 455; H = 256 }) },
             [pscustomobject]@{ S = 1; Title = 'Older'; First = $T - 9; Last = $T - 5; Zones = @(); LevelFrom = $null; LevelTo = $null; File = 'data\y.md'; Text = $null }) }) })
     Check 'snapshot passes its check' (Test-JournalSnapshotLua $lua) ''
     Check 'tampered snapshot refused' (Test-JournalSnapshotLua ($lua + "`nos.exit()")) 'unexpected text outside string values'
     Check 'ascii only' ([regex]::IsMatch($lua, '[^\x00-\x7F]')) $false
     Check 'cut on a character' (Get-SnapshotText ('ab' + [char]0xE9 + 'cd') 3).StartsWith('ab' + [char]0xE9) $false
 
+    # Screenshots: the pictures a session links, and their thumbnails for the game.
+    $shots = @(Get-SessionShots "Text.`n`n![Level up, 21:02](../screenshots/a.jpg)`n`n![Boss, 22:00](../screenshots/b.png)`n")
+    Check 'pictures found' $shots.Count 2
+    Check 'picture name' $shots[1].Name 'b.png'
+    Check 'picture caption' $shots[0].Caption 'Level up, 21:02'
+    Add-Type -AssemblyName System.Drawing
+    $imgPath = Join-Path $tmp 'shot.jpg'
+    $bmp = New-Object System.Drawing.Bitmap 1920, 1080
+    $g = [System.Drawing.Graphics]::FromImage($bmp); $g.Clear([System.Drawing.Color]::Red); $g.Dispose()
+    $bmp.Save($imgPath, [System.Drawing.Imaging.ImageFormat]::Jpeg); $bmp.Dispose()
+    $tga = Join-Path $tmp 'thumbs\shot.tga'
+    $fit = New-Thumbnail $imgPath $tga
+    Check 'thumbnail width' $fit.W 455
+    Check 'thumbnail height' $fit.H 256
+    $bytes = [IO.File]::ReadAllBytes($tga)
+    Check 'thumbnail file size' $bytes.Length (18 + 512 * 256 * 3)
+    Check 'thumbnail is uncompressed true colour' $bytes[2] 2
+    Check 'thumbnail is 24-bit' $bytes[16] 24
+    $top = 18 + (255 - 10) * 512 * 3 + 10 * 3 # 10 pixels in from the top left; the file's last row is the picture's top
+    # row (the edge pixels blend with the black around the picture)
+    True 'picture red at the top left' ($bytes[$top] -lt 30 -and $bytes[$top + 2] -gt 220)
+    True 'black right of the picture' ($bytes[18 + 500 * 3] -eq 0 -and $bytes[18 + 500 * 3 + 2] -eq 0)
+    Check 'an existing thumbnail is kept' (New-Thumbnail $imgPath $tga).W 455
+    [IO.File]::WriteAllBytes((Join-Path $tmp 'junk.jpg'), [byte[]](1, 2, 3))
+    True 'no thumbnail from a file that is not an image' ($null -eq (New-Thumbnail (Join-Path $tmp 'junk.jpg') (Join-Path $tmp 'junk.tga')))
+
     # The snapshot loads in Lua as the add-on reads it (needs Python with Lupa, as the Lua harnesses do).
     $snapPath = Join-Path $tmp 'JournalSnapshot.lua'
     [IO.File]::WriteAllText($snapPath, $lua, $Utf8)
     $py = Get-Command python -ErrorAction SilentlyContinue
     if ($py) {
-        $check = "from lupa.lua51 import LuaRuntime; import sys; r = LuaRuntime(); ns = r.eval('{}'); f = r.eval('function(src, ns) return assert(loadstring(src))(\'JourneyMaster\', ns) end'); f(open(sys.argv[1], encoding='utf-8').read(), ns); c = ns.journalSnapshot.characters; k = list(c.keys())[0]; s = c[k].sessions; print(k + '|' + s[1].title + '|' + s[1].text.replace('\n', '/') + '|' + str(s[2].text))"
+        $check = "from lupa.lua51 import LuaRuntime; import sys; r = LuaRuntime(); ns = r.eval('{}'); f = r.eval('function(src, ns) return assert(loadstring(src))(\'JourneyMaster\', ns) end'); f(open(sys.argv[1], encoding='utf-8').read(), ns); c = ns.journalSnapshot.characters; k = list(c.keys())[0]; s = c[k].sessions; print(k + '|' + s[1].title + '|' + s[1].text.replace('\n', '/') + '|' + str(s[2].text) + '|' + s[1].shots[1].thumb + '|' + str(s[1].shots[1].w))"
         $env:PYTHONIOENCODING = 'utf-8'
         $prevEnc = [Console]::OutputEncoding
         [Console]::OutputEncoding = $Utf8
         try { $out = & python -c $check $snapPath 2>&1 } finally { [Console]::OutputEncoding = $prevEnc; Remove-Item Env:PYTHONIOENCODING }
-        Check 'snapshot read by Lua' ([string]$out) ("Adra$([char]0xEB)l-Realm|He said `"end`" ]] --|Line one/Line two|None")
+        Check 'snapshot read by Lua' ([string]$out) ("Adra$([char]0xEB)l-Realm|He said `"end`" ]] --|Line one/Line two|None|Interface\AddOns\JourneyMaster\Thumbs\X\a|455")
     } else { Write-Host 'python not found: the Lua load check was skipped' -ForegroundColor Yellow }
 
     # Whole runs of the app ---------------------------------------------------------------------------------------------------
@@ -270,7 +297,7 @@ JourneyMasterOther = nil
     $env:FAKE_CLAUDE_LOG = $calls
     $env:FAKE_CLAUDE_INVENT = '0'
     $shotTime = ConvertFrom-Epoch ($T + 122)
-    [IO.File]::WriteAllBytes((Join-Path $wow ("Screenshots\WoWScrnShot_" + $shotTime.ToString('MMddyy_HHmmss') + '.jpg')), [byte[]](1, 2, 3))
+    Copy-Item $imgPath (Join-Path $wow ("Screenshots\WoWScrnShot_" + $shotTime.ToString('MMddyy_HHmmss') + '.jpg'))
     [IO.File]::Copy($logPath, (Join-Path $wow 'Logs\WoWChatLog.txt'))
     $session1 = @(
         @{ i = 1; s = 1; t = $T - 7200; k = 'login'; lvl = 26; z = 'Stormwind City'; sz = 'Trade District' },
@@ -290,7 +317,7 @@ JourneyMasterOther = nil
     $char = [ordered]@{ name = 'Baldrake Cavendell'; realm = 'Living Flame'; race = 'Human'; class = 'Warlock'; faction = 'Alliance'; level = 27; seq = 11; dropped = 0; entries = @($session1 + $session2) }
     Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
     $run = { param([long]$Now, [string]$Running = 'no', [string[]]$More = @())
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $App -WowDir $wow -DataDir $data -ClaudePath $Fake -GameRunning $Running -Now $Now -LoreDir (Join-Path $tmp 'nolore') @More 2>&1 | Out-String }
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $App -WowDir $wow -DataDir $data -ClaudePath $Fake -GameRunning $Running -Now $Now -LoreDir (Join-Path $tmp 'nolore') -NoExplorer @More 2>&1 | Out-String }
 
     # The game is still running: the first session (logged out, then a later session) is summarised; the dungeon session
     # waits for the game to close.
@@ -329,6 +356,20 @@ JourneyMasterOther = nil
     True 'export picture paths from the character folder' ($journal -match '\]\(screenshots/2026-11-12_')
     $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
     True 'snapshot revision 2' ($snap -match 'revision = 2,')
+    $thumbs = @(Get-ChildItem (Join-Path $addon 'Thumbs') -Recurse -Filter '*.tga')
+    Check 'thumbnail made in the add-on folder' $thumbs.Count 1
+    Check 'thumbnail folder named safely' $thumbs[0].Directory.Name 'Baldrake_Cavendell-LivingFlame'
+    True 'snapshot lists the thumbnail' ($snap -match 'shots = \{ \{ name = ')
+
+    # The game's "Open screenshots on PC" button: the request is answered once.
+    $char.openShots = [ordered]@{ t = $T + 950; s = 2 }
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    $out = & $run ($T + 960) 'no'
+    True 'open request answered with the screenshot' ($out -match 'opening .*screenshots\\2026-11-12_\d{6}-level\.jpg, as asked')
+    $out = & $run ($T + 970) 'no'
+    True 'open request answered only once' ($out -notmatch 'as asked in the game')
+    $char.Remove('openShots')
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
 
     # A player's edit to a session file is kept and shown in the snapshot; a rerun changes nothing and calls no AI.
     $edited = (Read-FileText $files[0].FullName) + "`nAdded by hand.`n"
@@ -370,6 +411,7 @@ JourneyMasterOther = nil
     $out = & $run ($T + 9001) 'yes' @('-FullSessions', '1')
     $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
     Check 'texts in the snapshot' ([regex]::Matches($snap, 'text = ').Count) 1
+    Check 'thumbnails of sessions listed by title only removed' @(Get-ChildItem (Join-Path $addon 'Thumbs') -Recurse -Filter '*.tga').Count 0
     True 'confirmed follows the record' ($snap -match 'confirmed = 54,')
 
     # -Export writes journal.md without any AI call.

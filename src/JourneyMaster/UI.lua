@@ -149,14 +149,51 @@ function UI.Button(parent, width, label, onClick)
     return b
 end
 
--- Blocks of wrapped text stacked down a scroll area's child. Reuses its font strings between calls.
--- blocks: list of { text = "...", font = "GameFontHighlight" (optional), gap = pixels above (optional) }.
+-- Thumbnails are 512 by 256 pixels; the picture fills the top-left w by h of them (see New-Thumbnail in the app).
+UI.THUMB_W, UI.THUMB_H = 512, 256
+
+-- A thumbnail block: the texture scaled to the reader's width (never larger than the picture), in a bronze frame.
+local function layoutImage(area, pool, b, x, y, width)
+    pool.images = pool.images or {}
+    pool.nImages = (pool.nImages or 0) + 1
+    local holder = pool.images[pool.nImages]
+    if not holder then
+        holder = CreateFrame("Frame", nil, area.child)
+        UI.Box(holder, "000000", UI.C.edge, 1)
+        holder.tex = holder:CreateTexture(nil, "ARTWORK")
+        holder.tex:SetPoint("TOPLEFT", 1, -1)
+        holder.tex:SetPoint("BOTTOMRIGHT", -1, 1)
+        pool.images[pool.nImages] = holder
+    end
+    local w, h = tonumber(b.w) or UI.THUMB_W, tonumber(b.h) or UI.THUMB_H
+    local shownW = math.min(width, w)
+    local shownH = math.floor(shownW * h / w + 0.5)
+    holder.tex:SetTexture(b.image)
+    holder.tex:SetTexCoord(0, w / UI.THUMB_W, 0, h / UI.THUMB_H)
+    holder:SetSize(shownW + 2, shownH + 2)
+    holder:ClearAllPoints()
+    holder:SetPoint("TOPLEFT", area.child, "TOPLEFT", x, -y)
+    holder:Show()
+    return shownH + 2
+end
+
+-- Blocks of wrapped text, and thumbnails, stacked down a scroll area's child. Reuses its font strings and textures
+-- between calls. blocks: list of { text = "...", font = "GameFontHighlight" (optional), colour = "rrggbb" (optional),
+-- gap = pixels above (optional) } or { image = texture path, w, h (the part of the thumbnail the picture fills) }.
 -- Returns the height used.
 function UI.LayoutBlocks(area, pool, blocks)
     local pad = area.padding or 4
     local width = area:Width() - 2 * pad
     local y = pad
-    for i, b in ipairs(blocks) do
+    local n = 0
+    pool.nImages = 0
+    for _, b in ipairs(blocks) do
+      if b.image then
+        y = y + (b.gap or 0)
+        y = y + layoutImage(area, pool, b, pad, y, width) + 4
+      else
+        n = n + 1
+        local i = n
         local fs = pool[i]
         if not fs then
             fs = area.child:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -174,8 +211,10 @@ function UI.LayoutBlocks(area, pool, blocks)
         fs:SetPoint("TOPLEFT", area.child, "TOPLEFT", pad, -y)
         fs:Show()
         y = y + (fs:GetStringHeight() or 14) + 4
+      end
     end
-    for i = #blocks + 1, #pool do pool[i]:Hide() end
+    for i = n + 1, #pool do pool[i]:Hide() end
+    for i = pool.nImages + 1, #(pool.images or {}) do pool.images[i]:Hide() end
     area:SetContentHeight(y + pad)
     return y
 end

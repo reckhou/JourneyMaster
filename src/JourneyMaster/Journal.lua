@@ -28,7 +28,7 @@ function Journal.List(c, key)
     for _, s in ipairs(snapChar and snapChar.sessions or {}) do
         local item = {
             s = s.s, title = s.title, first = s.first, last = s.last, zones = s.zones or {},
-            levelFrom = s.levelFrom, levelTo = s.levelTo, text = s.text, file = s.file,
+            levelFrom = s.levelFrom, levelTo = s.levelTo, text = s.text, file = s.file, shots = s.shots,
             state = s.text and "full" or "brief", entries = 0,
         }
         byS[s.s] = item
@@ -80,9 +80,12 @@ end
 -- the mock-up's parchment white from UI.LayoutBlocks.
 local GOLD, GREY, WHITE, TIME = "|cffffd100", "|cffa8997a", "|cffffffff", "|cff7d7260"
 
--- Turns a summary's Markdown into text blocks for UI.LayoutBlocks: headings in gold, bullets with a dot, emphasis
--- marks removed, pictures as a note. The game cannot show the pictures, so they are named instead.
-function Journal.Blocks(markdown)
+-- Turns a summary's Markdown into blocks for UI.LayoutBlocks: headings in gold, bullets with a dot, emphasis marks
+-- removed. A picture on its own line becomes its thumbnail with the caption under it, when the snapshot lists one for
+-- it in shots (the app's thumbnails: name, thumb, w, h); otherwise it is named in a note.
+function Journal.Blocks(markdown, shots)
+    local thumbs = {}
+    for _, shot in ipairs(shots or {}) do if shot.name then thumbs[shot.name] = shot end end
     local blocks = {}
     local para = {}
     local function flush()
@@ -92,6 +95,14 @@ function Journal.Blocks(markdown)
         end
     end
     for line in (tostring(markdown or "") .. "\n"):gmatch("(.-)\r?\n") do
+        local alt, path = line:match("^%s*!%[(.-)%]%((.-)%)%s*$")
+        local shot = path and thumbs[path:match("[^/\\]+$") or path]
+        if shot then
+            flush()
+            blocks[#blocks + 1] = { image = shot.thumb, w = shot.w, h = shot.h, gap = 6 }
+            blocks[#blocks + 1] = { text = GREY .. alt .. "|r", font = "GameFontHighlightSmall", gap = 0 }
+            line = ""
+        end
         line = line:gsub("%*%*(.-)%*%*", "%1"):gsub("__(.-)__", "%1")
         line = line:gsub("!%[(.-)%]%((.-)%)", function(alt, path)
             return GREY .. "[Screenshot: " .. (path:match("[^/\\]+$") or path) .. "]|r"
@@ -121,7 +132,7 @@ function Journal.JournalBlocks(key, item)
         { text = GREY .. Journal.Header(item) .. "|r", font = "GameFontHighlightSmall" },
     }
     if item.state == "full" then
-        for _, b in ipairs(Journal.Blocks(item.text)) do blocks[#blocks + 1] = b end
+        for _, b in ipairs(Journal.Blocks(item.text, item.shots)) do blocks[#blocks + 1] = b end
     elseif item.state == "brief" then
         blocks[#blocks + 1] = { gap = 8, text = "This older session's summary is kept on your PC, in " .. WHITE
             .. Journal.FilePath(key, item) .. "|r." }

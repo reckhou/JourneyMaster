@@ -36,6 +36,7 @@ param(
     [int]$PollSeconds = 15,
     [switch]$Export,           # only write journal.md for every character, then stop
     [switch]$NoOverview,
+    [switch]$NoExplorer,       # do not open File Explorer for the game's "Open screenshots on PC" button (for tests)
     [ValidateSet('auto', 'yes', 'no')][string]$GameRunning = 'auto',
     [long]$Now = 0,            # epoch seconds, for tests
     [switch]$DebugMode
@@ -100,6 +101,28 @@ function Find-SavedVariables {
 
 function Get-CharDir($c) { Join-Path $JourneysDir $c.Folder }
 
+# Opens File Explorer on a session's first screenshot. A session not summarised yet has its screenshots only in the
+# game's Screenshots folder, so that folder opens instead.
+function Open-SessionShots($key, $c, [long]$Number) {
+    $target = $null
+    $known = $c.Sessions["$Number"]
+    if ($known) {
+        $md = Join-Path (Join-Path (Get-CharDir $c) 'sessions') $known.File
+        if (Test-Path -LiteralPath $md) {
+            $first = @(Get-SessionShots (Read-FileText $md)) | Select-Object -First 1
+            if ($first) { $target = Join-Path (Join-Path (Get-CharDir $c) 'screenshots') $first.Name }
+        }
+    }
+    if ($target -and (Test-Path -LiteralPath $target)) { $explorerArgs = "/select,`"$target`"" }
+    else {
+        $target = if ($known) { Join-Path (Get-CharDir $c) 'screenshots' } else { $ScreenshotDir }
+        if (-not (Test-Path -LiteralPath $target)) { Say "$key`: no screenshots folder to open at $target" 'Yellow'; return }
+        $explorerArgs = "`"$target`""
+    }
+    Say "$key`: opening $target, as asked in the game" 'Cyan'
+    if (-not $NoExplorer) { Start-Process -FilePath 'explorer.exe' -ArgumentList $explorerArgs }
+}
+
 # Step 1: new entries into the event files -------------------------------------------------------------------------------
 
 function Import-SavedVariables([string]$Path) {
@@ -126,6 +149,12 @@ function Import-SavedVariables([string]$Path) {
         if ([long]$sv['dropped'] -gt [long]$c['Dropped']) {
             Say "$key`: the add-on dropped $($sv['dropped']) entries at its size cap" 'Yellow'
             $c.Dropped = [long]$sv['dropped']
+        }
+        # The game's "Open screenshots on PC" button: each request (its time) is answered once.
+        $req = $sv['openShots']
+        if ($req -is [Collections.IDictionary] -and [long]$req['t'] -gt [long]$c['OpenShotsDone']) {
+            $c.OpenShotsDone = [long]$req['t']
+            Open-SessionShots $key $c ([long]$req['s'])
         }
     }
 }
@@ -316,6 +345,34 @@ function Write-Export($key) {
 
 # Step 4: the snapshot ---------------------------------------------------------------------------------------------------
 
+# Thumbnails go in the add-on's Thumbs folder, one folder per character, named with letters, digits, - and _ only.
+$ThumbsDir = Join-Path $AddOnDir 'Thumbs'
+$script:ThumbsUsed = @{}
+
+# The thumbnails of a session's screenshots (made when missing): Name, Thumb (game path), W, H.
+function Get-Thumbnails($c, [string]$Body) {
+    $folder = ([string]$c.Folder) -replace '[^A-Za-z0-9_-]+', '_'
+    foreach ($shot in @(Get-SessionShots $Body)) {
+        $src = Join-Path (Join-Path (Get-CharDir $c) 'screenshots') $shot.Name
+        if (-not (Test-Path -LiteralPath $src)) { continue }
+        $base = [IO.Path]::GetFileNameWithoutExtension($shot.Name) -replace '[^A-Za-z0-9_-]+', '_'
+        $dest = Join-Path (Join-Path $ThumbsDir $folder) "$base.tga"
+        $fit = New-Thumbnail $src $dest
+        if (-not $fit) { Dbg "no thumbnail for $($shot.Name): not an image the app can read"; continue }
+        $script:ThumbsUsed[[IO.Path]::GetFullPath($dest).ToLowerInvariant()] = $true
+        [pscustomobject]@{ Name = $shot.Name; Thumb = "Interface\AddOns\JourneyMaster\Thumbs\$folder\$base"; W = $fit.W; H = $fit.H }
+    }
+}
+
+# Deletes thumbnails no session in the snapshot uses any more, so the add-on folder stays small.
+function Remove-UnusedThumbnails {
+    if (-not (Test-Path -LiteralPath $ThumbsDir)) { return }
+    foreach ($f in @(Get-ChildItem -LiteralPath $ThumbsDir -Recurse -File -Filter '*.tga')) {
+        if (-not $script:ThumbsUsed.ContainsKey($f.FullName.ToLowerInvariant())) { Remove-Item -LiteralPath $f.FullName; Dbg "thumbnail removed: $($f.Name)" }
+    }
+    $script:ThumbsUsed = @{}
+}
+
 function Publish-Snapshot {
     if (-not (Test-Path -LiteralPath $AddOnDir)) { Say "no add-on folder at $AddOnDir; the snapshot was not written" 'Yellow'; return }
     $chars = foreach ($key in @($State.Characters.Keys | Sort-Object)) {
@@ -326,12 +383,15 @@ function Publish-Snapshot {
         $sessions = foreach ($d in $docs) {
             $i++
             $rel = "data\journeys\$($c.Folder)\sessions\$($d.S.File)"
+            $full = $i -le $FullSessions
             [pscustomobject]@{ S = $d.Number
                 Title = $d.Title; First = $d.S.First; Last = $d.S.Last; Zones = @($d.S.Zones); LevelFrom = $d.S.LevelFrom; LevelTo = $d.S.LevelTo
-                File = $rel; Text = $(if ($i -le $FullSessions) { Get-SnapshotText $d.Body } else { $null }) }
+                File = $rel; Text = $(if ($full) { Get-SnapshotText $d.Body } else { $null })
+                Shots = $(if ($full) { @(Get-Thumbnails $c $d.Body) } else { @() }) }
         }
         [pscustomobject]@{ Key = $key; Confirmed = [long]$c.LastSeq; Sessions = @($sessions) }
     }
+    Remove-UnusedThumbnails
     $State.Revision = [long]$State.Revision + 1
     $lua = New-JournalSnapshotLua ([pscustomobject]@{ Revision = $State.Revision; Written = (NowEpoch); Characters = @($chars) })
     $why = Test-JournalSnapshotLua $lua

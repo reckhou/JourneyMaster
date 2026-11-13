@@ -41,6 +41,8 @@ Every character gets the same neutral narrator: third person, past tense, factua
 
 - Click the **minimap button** (a book), or type `/jm`, to open the journal. The add-on menu has an entry for it too.
 - The **session list** on the left drives both tabs. **Journal** shows a session's summary. **Log** shows its raw entries, with one on/off switch for each kind of entry. **Settings** has the switches for each chat channel, NPC speech, screenshots, the minimap button and a reload prompt.
+- **Screenshots** show as thumbnails under the summary of each of the newest sessions. The app makes them in the add-on's `Thumbs\` folder. The game may only find a new thumbnail after a full restart of the game, not after `/reload`; this is not yet checked.
+- **Open screenshots on PC**, in the foot of the window, asks the app to open that session's screenshots in File Explorer. An add-on cannot open folders itself, so the button saves a request and offers a reload, which writes it to disk. The app must be running (`scripts\run_app.bat`).
 - `/jm note <text>` adds a note about something the game cannot see.
 - If part of the add-on fails, it says so once in chat and carries on recording. `/jm errors` lists every error since login, with how often each one happened.
 - `/jm help` lists every command.
@@ -54,7 +56,7 @@ Everything stays under `data\` in this folder. Git ignores it.
 | `events\<date>.jsonl` | The permanent record, one entry per line |
 | `sessions\<date>-<n>.md` | One summary per play session |
 | `records\<date>-<n>.txt` | The exact record the AI was given for that session, so you can check a summary against it |
-| `screenshots\` | The milestone screenshots, linked from their sessions |
+| `screenshots\` | The milestone screenshots, linked from their sessions. Their thumbnails for the game are in the add-on's `Thumbs\` folder; the app deletes the ones no recent session uses |
 | `overview.md` | The journey so far |
 | `journal.md` | The whole journal as one document (also written on request with `src\App\JourneyMaster.ps1 -Export`) |
 

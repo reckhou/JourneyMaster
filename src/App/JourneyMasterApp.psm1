@@ -758,6 +758,55 @@ function Find-Screenshot([string]$Dir, [long]$Epoch) {
     $best
 }
 
+# The pictures a session's Markdown links: Caption, Path as written, and Name (the file name alone).
+function Get-SessionShots([string]$Body) {
+    foreach ($m in [regex]::Matches([string]$Body, '!\[([^\]]*)\]\(([^)\s]+)\)')) {
+        $path = $m.Groups[2].Value
+        [pscustomobject]@{ Caption = $m.Groups[1].Value; Path = $path; Name = ($path -split '[\\/]')[-1] }
+    }
+}
+
+# A thumbnail the game can show: a 24-bit uncompressed TGA (Truevision TGA, the format of the add-on's icon) of
+# CanvasW by CanvasH pixels, powers of two, with the picture scaled to fit in its top-left corner and black around it.
+# Returns the width and height the picture fills, or $null when the source cannot be read as an image. An existing
+# Dest is kept: screenshots never change.
+function New-Thumbnail([string]$Source, [string]$Dest, [int]$CanvasW = 512, [int]$CanvasH = 256) {
+    Add-Type -AssemblyName System.Drawing
+    try { $img = [System.Drawing.Image]::FromFile($Source) } catch { return $null }
+    try {
+        $scale = [Math]::Min($CanvasW / $img.Width, $CanvasH / $img.Height)
+        $w = [Math]::Min($CanvasW, [Math]::Max(1, [int][Math]::Round($img.Width * $scale)))
+        $h = [Math]::Min($CanvasH, [Math]::Max(1, [int][Math]::Round($img.Height * $scale)))
+        if (Test-Path -LiteralPath $Dest) { return [pscustomobject]@{ W = $w; H = $h } } # made on an earlier run
+        $bmp = New-Object System.Drawing.Bitmap $CanvasW, $CanvasH, ([System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.Clear([System.Drawing.Color]::Black)
+        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $g.DrawImage($img, 0, 0, $w, $h)
+        $g.Dispose()
+        $rect = New-Object System.Drawing.Rectangle 0, 0, $CanvasW, $CanvasH
+        $data = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, $bmp.PixelFormat)
+        $row = $CanvasW * 3
+        $pixels = New-Object byte[] ($row * $CanvasH)
+        # TGA rows run from the bottom up; the bitmap's run from the top down, each Stride bytes apart. Both are BGR.
+        for ($y = 0; $y -lt $CanvasH; $y++) {
+            [Runtime.InteropServices.Marshal]::Copy([IntPtr]::Add($data.Scan0, $y * $data.Stride), $pixels, ($CanvasH - 1 - $y) * $row, $row)
+        }
+        $bmp.UnlockBits($data)
+        $bmp.Dispose()
+        $header = New-Object byte[] 18
+        $header[2] = 2 # uncompressed true colour
+        $header[12] = $CanvasW -band 0xFF; $header[13] = $CanvasW -shr 8
+        $header[14] = $CanvasH -band 0xFF; $header[15] = $CanvasH -shr 8
+        $header[16] = 24
+        $dir = Split-Path -Parent $Dest
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        $fs = [IO.File]::Create($Dest)
+        try { $fs.Write($header, 0, 18); $fs.Write($pixels, 0, $pixels.Length) } finally { $fs.Dispose() }
+        [pscustomobject]@{ W = $w; H = $h }
+    } finally { $img.Dispose() }
+}
+
 # The snapshot the game reads ---------------------------------------------------------------------------------------------
 
 # A Lua string literal with every UTF-8 byte as a three-digit decimal escape: plain ASCII source that can never end the
@@ -780,7 +829,8 @@ function Get-SnapshotText([string]$Text, [int]$MaxBytes = 16000) {
 }
 
 # JournalSnapshot.lua: Revision, Written, and Characters (Key, Confirmed, Sessions newest first: S, Title, First, Last,
-# Zones, LevelFrom, LevelTo, File, Text or $null for an older session listed by date and title only).
+# Zones, LevelFrom, LevelTo, File, Text or $null for an older session listed by date and title only, and optional Shots:
+# Name, Thumb (the thumbnail's game path), W and H (the part of the thumbnail the picture fills)).
 function New-JournalSnapshotLua($Model) {
     $out = New-Object Collections.Generic.List[string]
     $out.Add('-- JourneyMaster journal snapshot, written by the app. Read-only: edit the Markdown files on your PC.')
@@ -801,6 +851,12 @@ function New-JournalSnapshotLua($Model) {
             $fields += ('zones = { ' + ((@($s.Zones) | ForEach-Object { ConvertTo-LuaString $_ }) -join ', ') + ' }')
             $fields += ('file = ' + (ConvertTo-LuaString $s.File))
             if ($s.Text) { $fields += ('text = ' + (ConvertTo-LuaString $s.Text)) }
+            $shots = @(if ($s.PSObject.Properties['Shots']) { $s.Shots | Where-Object { $_ } })
+            if ($shots.Count -gt 0) {
+                $fields += ('shots = { ' + (($shots | ForEach-Object {
+                    '{ name = ' + (ConvertTo-LuaString $_.Name) + ', thumb = ' + (ConvertTo-LuaString $_.Thumb) + ", w = $([int]$_.W), h = $([int]$_.H) }"
+                }) -join ', ') + ' }')
+            }
             $out.Add('                { ' + ($fields -join ', ') + ' },')
         }
         $out.Add('            },')
@@ -820,7 +876,7 @@ function Test-JournalSnapshotLua([string]$Lua) {
     $rest = $rest -replace '(?m)^--[^\n]*$', ''
     if ($rest -match '[^\sA-Za-z0-9_=,{}.\[\]]') { return 'unexpected text outside string values' }
     $allowed = 'local', '_', 'ns', 'journalSnapshot', 'schema', 'revision', 'written', 'characters', 'confirmed', 'sessions',
-        's', 'title', 'first', 'last', 'levelFrom', 'levelTo', 'zones', 'file', 'text'
+        's', 'title', 'first', 'last', 'levelFrom', 'levelTo', 'zones', 'file', 'text', 'shots', 'name', 'thumb', 'w', 'h'
     foreach ($w in [regex]::Matches($rest, '[A-Za-z_]+')) { if ($allowed -cnotcontains $w.Value) { return "unexpected name $($w.Value)" } }
     ''
 }
@@ -921,5 +977,5 @@ Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Test-Coverage, 
     Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
     Format-Entry, Format-RecordLines, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
     ConvertFrom-SummaryReply, Test-Grounded, Get-SessionFileName, Format-SessionLine, Format-SessionMarkdown, Read-SessionMarkdown,
-    Find-Screenshot, ConvertTo-LuaString, Get-SnapshotText, New-JournalSnapshotLua, Test-JournalSnapshotLua, Get-OverviewRules,
+    Find-Screenshot, Get-SessionShots, New-Thumbnail, ConvertTo-LuaString, Get-SnapshotText, New-JournalSnapshotLua, Test-JournalSnapshotLua, Get-OverviewRules,
     New-OverviewPrompt, New-JournalExport, Format-CliArgument, Invoke-ClaudeCli

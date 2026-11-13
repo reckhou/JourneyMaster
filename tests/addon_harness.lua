@@ -216,6 +216,22 @@ ns.Window.Refresh()
 st = ns.Window.State()
 eq(st.items[1].state, "full", "summary from the snapshot")
 eq(st.items[1].title, "Duskwood by night", "summary title")
+-- Screenshots: a picture with a thumbnail becomes an image block with its caption; one without stays a note.
+local shotBlocks = ns.Journal.Blocks("Text.\n\n![Level up, 21:02](../screenshots/a.jpg)\n\n![Boss, 22:00](../screenshots/b.jpg)\n",
+    { { name = "a.jpg", thumb = "Interface\\AddOns\\JourneyMaster\\Thumbs\\X\\a", w = 455, h = 256 } })
+eq(shotBlocks[2].image, "Interface\\AddOns\\JourneyMaster\\Thumbs\\X\\a", "thumbnail shown")
+eq(shotBlocks[2].w, 455, "thumbnail width")
+check(shotBlocks[3].text:find("Level up, 21:02", 1, true), "caption under the thumbnail")
+check(shotBlocks[4].text:find("[Screenshot: b.jpg]", 1, true), "picture without a thumbnail named")
+ns.journalSnapshot.characters["Baldrake Cavendell-LivingFlame"].sessions[1].shots = { { name = "a.jpg", thumb = "T\\a", w = 455, h = 256 } }
+ns.journalSnapshot.characters["Baldrake Cavendell-LivingFlame"].sessions[1].text = "Went.\n\n![Level up, 21:02](../screenshots/a.jpg)\n"
+ns.Window.Select(s1)
+ns.Window.SelectTab("journal")
+eq(#ns.Window.State().items[1].shots, 1, "shots reach the session list")
+ns.Window.RequestShots()
+eq(c.openShots.s, s1, "open request names the session")
+eq(c.openShots.t, W.now, "open request carries its time")
+eq(W.popup, "JOURNEYMASTER_OPEN_SHOTS", "reload offered for the open request")
 -- A new session starts; at the next login the stored session is trimmed, as it is no longer among the newest kept.
 c.settings.keepSessions = 1
 tick(4000)
