@@ -86,6 +86,7 @@ end
 GetRealmName = function() return "Living Flame" end
 UnitClass = function() return "Warlock", "WARLOCK" end
 UnitRace = function() return "Human", "Human" end
+UnitSex = function() return 2 end
 UnitFactionGroup = function() return "Alliance" end
 UnitLevel = function() return 26 end
 GetMoney = function() return W.money end

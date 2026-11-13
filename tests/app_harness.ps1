@@ -1,0 +1,372 @@
+# Offline tests for the JourneyMaster app (src\App): the saved-file reader, event files, sessions, the chat log fill, the
+# record, grounding, splitting, the session files, the snapshot, and whole runs of JourneyMaster.ps1 against a made-up
+# game folder with a fake claude (tests\fake_claude.ps1).
+# Run from the project root with Windows PowerShell 5.1:
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tests\app_harness.ps1
+# Kept ASCII-only: Windows PowerShell 5.1 reads a script without a byte-order mark as ANSI.
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot '..\src\App\JourneyMasterApp.psm1') -Force
+$Utf8 = New-Object Text.UTF8Encoding $false
+$Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$App = Join-Path $Root 'src\App\JourneyMaster.ps1'
+$Fake = Join-Path $Root 'tests\fake_claude.ps1'
+
+$failures = 0
+function Check($what, $actual, $expected) {
+    if ("$actual" -cne "$expected") {
+        Write-Host "FAIL ${what}: expected [$expected], got [$actual]" -ForegroundColor Red
+        $script:failures++
+    }
+}
+function True($what, $cond) { if (-not $cond) { Write-Host "FAIL $what" -ForegroundColor Red; $script:failures++ } }
+
+# Writes a value as the game writes SavedVariables (tabs, ["key"] = value, arrays with -- [n] comments).
+function ConvertTo-TestLua($v, [int]$Depth = 0) {
+    $tab = "`t" * ($Depth + 1)
+    if ($null -eq $v) { return 'nil' }
+    if ($v -is [bool]) { return $(if ($v) { 'true' } else { 'false' }) }
+    if ($v -is [int] -or $v -is [long] -or $v -is [double]) { return [string]$v }
+    if ($v -is [string]) {
+        $sb = New-Object Text.StringBuilder
+        [void]$sb.Append('"')
+        foreach ($ch in $v.ToCharArray()) {
+            switch ($ch) { '"' { [void]$sb.Append('\"') } '\' { [void]$sb.Append('\\') } "`n" { [void]$sb.Append('\n') } default { [void]$sb.Append($ch) } }
+        }
+        return $sb.Append('"').ToString()
+    }
+    $lines = New-Object Collections.Generic.List[string]
+    $lines.Add('{')
+    if ($v -is [Collections.IDictionary]) {
+        foreach ($k in $v.Keys) { $lines.Add("$tab[`"$k`"] = $(ConvertTo-TestLua $v[$k] ($Depth + 1)),") }
+    } else {
+        $n = 0
+        foreach ($item in $v) { $n++; $lines.Add("$tab$(ConvertTo-TestLua $item ($Depth + 1)), -- [$n]") }
+    }
+    $lines.Add(("`t" * $Depth) + '}')
+    $lines -join "`n"
+}
+function Write-TestSV([string]$Path, $Db) {
+    $dir = Split-Path -Parent $Path
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
+    [IO.File]::WriteAllText($Path, "`nJourneyMasterDB = $(ConvertTo-TestLua $Db)`n", $Utf8)
+}
+
+# The saved-file reader ----------------------------------------------------------------------------------------------------
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ('jm-test-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory $tmp | Out-Null
+try {
+    $svText = @"
+
+JourneyMasterDB = {
+`t["schema"] = 1,
+`t["characters"] = {
+`t`t["Adra\195\171l-Realm"] = {
+`t`t`t["entries"] = {
+`t`t`t`t{
+`t`t`t`t`t["k"] = "chat",
+`t`t`t`t`t["text"] = "say \"hi\"\\ and\nnew line caf\195\169",
+`t`t`t`t`t["t"] = 1794520000,
+`t`t`t`t`t["stock"] = true,
+`t`t`t`t`t["x"] = 1.5,
+`t`t`t`t`t["neg"] = -3,
+`t`t`t`t}, -- [1]
+`t`t`t`t{
+`t`t`t`t`t["k"] = "note", ["text"] = "Adra" .. "",
+`t`t`t`t}, -- [2]
+`t`t`t},
+`t`t`t["settings"] = {
+`t`t`t},
+`t`t`t["zonesSeen"] = { ["Elwynn Forest"] = true, [5] = "five" },
+`t`t},
+`t},
+}
+JourneyMasterOther = nil
+"@
+    # The ".." above is not valid SV; remove it so the file is what the game writes.
+    $svText = $svText.Replace(' .. ""', '')
+    $svPath = Join-Path $tmp 'sv.lua'
+    [IO.File]::WriteAllText($svPath, $svText, $Utf8)
+    $g = Read-SavedVariables $svPath
+    $chars = $g['JourneyMasterDB']['characters']
+    $key = @($chars.Keys)[0]
+    Check 'UTF-8 escapes decoded in keys' $key ("Adra" + [char]0xEB + "l-Realm")
+    $e = $chars[$key]['entries']
+    True 'array becomes object[]' ($e -is [object[]])
+    Check 'escapes' $e[0]['text'] ("say `"hi`"\ and`nnew line caf" + [char]0xE9)
+    Check 'integer' $e[0]['t'] 1794520000
+    True 'integer is long' ($e[0]['t'] -is [long])
+    Check 'boolean' $e[0]['stock'] $true
+    Check 'decimal' $e[0]['x'] 1.5
+    Check 'negative' $e[0]['neg'] -3
+    True 'empty table is a Hashtable' ($chars[$key]['settings'] -is [Collections.Hashtable])
+    Check 'mixed keys' $chars[$key]['zonesSeen']['5'] 'five'
+    Check 'nil global absent' $g.ContainsKey('JourneyMasterOther') $false
+
+    # Event files and sessions --------------------------------------------------------------------------------------------
+    $T = ConvertTo-Epoch (Get-Date -Year 2026 -Month 11 -Day 12 -Hour 21 -Minute 0 -Second 0 -Millisecond 0)
+    $evDir = Join-Path $tmp 'events'
+    $entries = @(
+        @{ i = 1; s = 1; t = $T; k = 'login'; lvl = 26; z = 'Stormwind City' },
+        @{ i = 2; s = 1; t = $T + 60; k = 'zone'; z = 'Duskwood'; sz = 'Darkshire' },
+        @{ i = 3; s = 1; t = $T + 120; k = 'level'; level = 27; z = 'Duskwood' },
+        @{ i = 4; s = 2; t = $T + 3 * 3600; k = 'login'; z = 'Duskwood' }
+    )
+    Check 'entries written' (Add-EventEntries $evDir $entries) 4
+    [void](Add-EventEntries $evDir @($entries[0])) # a repeat is ignored when read back
+    $read = @(Read-EventEntries $evDir)
+    Check 'read back without duplicates' $read.Count 4
+    $sessions = @(Get-Sessions $read)
+    Check 'two sessions' $sessions.Count 2
+    Check 'first session entries' $sessions[0].Entries.Count 3
+    True 'earlier session finished' (Test-SessionFinished $sessions[0] $false ($T + 3 * 3600) $true)
+    True 'latest session running' (-not (Test-SessionFinished $sessions[1] $true ($T + 3 * 3600 + 60) $true))
+    True 'latest session idle 31 minutes: finished' (Test-SessionFinished $sessions[1] $true ($T + 3 * 3600 + 1860) $true)
+    $logoutSession = [pscustomobject]@{ S = 3; Entries = @(@{ k = 'login'; t = $T }, @{ k = 'logout'; t = $T + 10 }); First = $T; Last = $T + 10 }
+    True 'logout with the game closed: finished' (Test-SessionFinished $logoutSession $true ($T + 20) $false)
+    True 'logout with the game running (a reload): not finished' (-not (Test-SessionFinished $logoutSession $true ($T + 20) $true))
+    $dungeon = [pscustomobject]@{ S = 4; Entries = @(@{ k = 'enter'; t = $T; inst = 'The Stockade' }, @{ k = 'leave'; t = $T + 600; inst = 'The Stockade' }); First = $T; Last = $T + 600 }
+    True 'dungeon session waits for the game to close' (-not (Test-SessionFinished $dungeon $false ($T + 4000) $true))
+    True 'dungeon session after the game closed' (Test-SessionFinished $dungeon $false ($T + 4000) $false)
+    $facts = Get-SessionFacts $sessions[0] $null
+    Check 'levels' "$($facts.LevelFrom)-$($facts.LevelTo)" '26-27'
+    Check 'zones' ($facts.Zones -join '|') 'Stormwind City|Duskwood'
+    Check 'subzones' ($facts.Subzones -join '|') 'Darkshire'
+
+    # The chat log ------------------------------------------------------------------------------------------------------------
+    $win = @(Get-InstanceWindows $dungeon)
+    Check 'one window' $win.Count 1
+    Check 'window name' $win[0].Name 'The Stockade'
+    $stamp = { param($s) $d = ConvertFrom-Epoch ($T + $s); "$($d.Month)/$($d.Day) $($d.ToString('HH:mm:ss')).123  " }
+    $p = ConvertFrom-ChatLogLine ((& $stamp 30) + '|Hchannel:PARTY|h[Party Leader]|h Seph Stormbrewer: come to me') $T
+    Check 'party line' "$($p.Kind)|$($p.Ch)|$($p.Who)|$($p.Text)" 'chat|party|Seph Stormbrewer|come to me'
+    Check 'party line time' $p.T ($T + 30)
+    $p = ConvertFrom-ChatLogLine ((& $stamp 40) + 'Bazil Thredd yells: Lads, a visitor!') $T
+    Check 'yell line' "$($p.Kind)|$($p.Ch)|$($p.Who)" 'said|yell|Bazil Thredd'
+    Check 'kill line' (ConvertFrom-ChatLogLine ((& $stamp 50) + 'Defias Prisoner dies, you gain 60 experience. (+18 group bonus)') $T).Name 'Defias Prisoner'
+    Check 'own loot' (ConvertFrom-ChatLogLine ((& $stamp 51) + 'You receive loot: Linen Clothx3') $T).N 3
+    Check 'group death' (ConvertFrom-ChatLogLine ((& $stamp 52) + 'Seph has died.') $T).Who 'Seph'
+    Check 'own death' (ConvertFrom-ChatLogLine ((& $stamp 53) + 'You died.') $T).Kind 'death'
+    Check 'quest progress' (ConvertFrom-ChatLogLine ((& $stamp 54) + 'Quest accepted: The Stockade Riots') $T).Title 'The Stockade Riots'
+    Check 'joins' (ConvertFrom-ChatLogLine ((& $stamp 55) + 'Ask Forgeorage joins the party.') $T).Act 'join'
+    True 'numbered channel skipped' ($null -eq (ConvertFrom-ChatLogLine ((& $stamp 56) + '[2. Trade] Someone: WTS') $T))
+    True 'RPMaster signal skipped' ($null -eq (ConvertFrom-ChatLogLine ((& $stamp 57) + 'RPMP: x') $T))
+    True 'whisper skipped' ($null -eq (ConvertFrom-ChatLogLine ((& $stamp 58) + 'Seph whispers: secret') $T))
+    True 'other players loot skipped' ($null -eq (ConvertFrom-ChatLogLine ((& $stamp 59) + 'Seph Stormbrewer receives loot: Tin Ore.') $T))
+    $nye = ConvertTo-Epoch (Get-Date -Year 2026 -Month 12 -Day 31 -Hour 23 -Minute 59 -Second 0 -Millisecond 0)
+    Check 'stamp over New Year' (ConvertFrom-Epoch (ConvertFrom-ChatLogStamp 1 1 0 1 0 $nye)).Year 2027
+
+    $logPath = Join-Path $tmp 'WoWChatLog.txt'
+    $logLines = @(
+        ((& $stamp -3600) + '|Hchannel:PARTY|h[Party]|h Before Window: too early'),
+        ((& $stamp 30) + '|Hchannel:PARTY|h[Party Leader]|h Seph Stormbrewer: come to me'),
+        ((& $stamp 40) + 'Bazil Thredd yells: Lads, a visitor!'),
+        ((& $stamp 45) + 'Seph Stormbrewer says: on my way'),
+        ((& $stamp 50) + 'Defias Prisoner dies, you gain 60 experience. (+18 group bonus)'),
+        ((& $stamp 60) + 'Defias Prisoner dies, you gain 60 experience. (+18 group bonus)'),
+        ((& $stamp 70) + 'You receive loot: Linen Clothx3'),
+        ((& $stamp 80) + 'You died.'),
+        ((& $stamp 5000) + '|Hchannel:PARTY|h[Party]|h After Window: too late')
+    )
+    [IO.File]::WriteAllText($logPath, ($logLines -join "`r`n") + "`r`n", $Utf8)
+    $inWin = @(Read-ChatLogWindows $logPath $win)
+    Check 'lines in the window only' $inWin.Count 7
+    $merged = @(Merge-ChatLog (@($dungeon.Entries) + @(@{ k = 'death'; t = $T + 82 })) $inWin 'Baldrake Cavendell' @())
+    $kinds = ($merged | ForEach-Object { Get-Field $_ 'k' }) -join ','
+    Check 'merged kinds' $kinds 'enter,chat,said,chat,kills,logloot,death,leave'
+    $kills = $merged | Where-Object { (Get-Field $_ 'k') -eq 'kills' }
+    Check 'kills gathered' (Get-Field $kills 'list') 'Defias Prisoner x2'
+    $said = $merged | Where-Object { (Get-Field $_ 'who') -eq 'Seph Stormbrewer' -and (Get-Field $_ 'ch') -eq 'say' }
+    Check 'party member saying is a player' (Get-Field $said 'k') 'chat'
+    Check 'own death from the log not repeated' @($merged | Where-Object { (Get-Field $_ 'k') -eq 'death' }).Count 1
+
+    # The record ------------------------------------------------------------------------------------------------------------
+    $P = 'Baldrake Cavendell'
+    Check 'accept line' (Format-Entry @{ k = 'quest'; act = 'accept'; title = 'Worgen in the Woods'; giver = 'Calor'; text = 'Bring this "message".'; obj = 'Kill 6.' } $P) `
+        "Baldrake Cavendell accepted the quest `"Worgen in the Woods`" from Calor. Quest text: `"Bring this 'message'.`" Objective: `"Kill 6.`""
+    Check 'turn-in line' (Format-Entry @{ k = 'quest'; act = 'turnin'; title = 'Q'; giver = 'G'; xp = 1900; money = 2200 } $P) "Baldrake Cavendell handed in the quest `"Q`" to G (reward: 1900 experience, 22 silver)."
+    Check 'death with killer' (Format-Entry @{ k = 'death'; z = 'Duskwood'; killer = 'Stitches'; spell = 'melee' } $P) 'Baldrake Cavendell died in Duskwood, killed by Stitches.'
+    Check 'death without killer' (Format-Entry @{ k = 'death'; z = 'Duskwood' } $P) 'Baldrake Cavendell died in Duskwood.'
+    Check 'own say' (Format-Entry @{ k = 'chat'; ch = 'say'; who = $P; text = 'hello' } $P) 'Baldrake Cavendell (the character) said: "hello"'
+    Check 'npc from log' (Format-Entry @{ k = 'npc'; ch = 'yell'; who = 'Bazil Thredd'; text = 'Lads!'; src = 'log' } $P) 'Bazil Thredd (NPC) yelled (from the chat log): "Lads!"'
+    Check 'gap' (Format-Entry @{ k = 'gap'; what = 'chat lines'; n = 3 } $P) '[3 chat lines here were hidden from the add-on by the game.]'
+    True 'reload left out' ($null -eq (Format-Entry @{ k = 'login'; reload = $true } $P))
+    True 'screenshot left out' ($null -eq (Format-Entry @{ k = 'shot'; why = 'level' } $P))
+    foreach ($k in 'said', 'zone', 'enter', 'leave', 'boss', 'loot', 'gear', 'money', 'level', 'skill', 'rep', 'group', 'note', 'kills', 'logloot', 'logout') {
+        True "every kind formats: $k" ([string](Format-Entry @{ k = $k; t = $T } $P) -ne '')
+    }
+
+    # Grounding, splitting, replies ----------------------------------------------------------------------------------------
+    $src = "Baldrake Cavendell met Seph Stormbrewer in Darkshire. He handed in Worgen in the Woods for 1,900 experience."
+    Check 'grounded account' (@(Test-Grounded 'Later, Baldrake met Seph in Darkshire and earned 1900 experience.' $src).Count) 0
+    Check 'invented name and number' ((Test-Grounded 'Then Baldrake met Zanzibar and earned 42 gold.' $src) -join ',') 'Zanzibar,42'
+    Check 'possessive' (@(Test-Grounded "Baldrake's friend Seph's sword." $src).Count) 0
+    Check 'plurals of recorded names' (@(Test-Grounded 'The Skeletal Healers and the Tainted Ones fell.' '3/3 Skeletal Healer slain. 8/8 Nightbane Tainted One slain.').Count) 0
+    $hdr = Format-RecordHeader ([pscustomobject]@{ Name = 'Baldrake'; Race = 'Human'; Class = 'Warlock'; Faction = 'Alliance'; Sex = 2 }) ([pscustomobject]@{ First = $T; Last = $T + 60 }) ([pscustomobject]@{ LevelFrom = 26; LevelTo = 26; Zones = @('Duskwood') })
+    True 'header gives the sex' ($hdr -match 'Character: Baldrake, a male Human Warlock of the Alliance\.')
+    $hdr = Format-RecordHeader ([pscustomobject]@{ Name = 'Baldrake'; Race = 'Human'; Class = 'Warlock'; Faction = $null }) ([pscustomobject]@{ First = $T; Last = $T + 60 }) ([pscustomobject]@{ LevelFrom = $null; LevelTo = $null; Zones = @() })
+    True 'header without the sex' ($hdr -match 'Character: Baldrake, a Human Warlock\.')
+    True 'no empty screenshots heading' ((Format-SessionMarkdown 'T' 'L' 'Body.' $null) -notmatch 'Screenshots')
+    $parts = @(Split-RecordLines @('aaaa', 'bbbb', 'cccc', 'dddd') 10)
+    Check 'split in order' (($parts | ForEach-Object { $_ -join '' }) -join '|') 'aaaabbbb|ccccdddd'
+    $r = ConvertFrom-SummaryReply "TITLE: Into Duskwood`n`n# Heading`nBaldrake went on."
+    Check 'title' $r.Title 'Into Duskwood'
+    Check 'body without headings' $r.Body 'Baldrake went on.'
+    Check 'no title' (ConvertFrom-SummaryReply 'Just text.').Title ''
+
+    # Session files and the snapshot -----------------------------------------------------------------------------------------
+    $md = Format-SessionMarkdown 'Into Duskwood' 'Baldrake' 'Baldrake went on.' @([pscustomobject]@{ Path = '../screenshots/a.jpg'; Caption = 'Level up, 21:02' })
+    $doc = Read-SessionMarkdown $md
+    Check 'title read back' $doc.Title 'Into Duskwood'
+    Check 'line read back' $doc.Line 'Baldrake'
+    True 'screenshots in the body' ($doc.Body -match '!\[Level up, 21:02\]\(\.\./screenshots/a\.jpg\)')
+    $sessDir = Join-Path $tmp 'sessions'
+    New-Item -ItemType Directory $sessDir | Out-Null
+    Check 'first file of a day' (Get-SessionFileName $sessDir $T) '2026-11-12-1.md'
+    [IO.File]::WriteAllText((Join-Path $sessDir '2026-11-12-1.md'), 'x')
+    Check 'second file of a day' (Get-SessionFileName $sessDir $T) '2026-11-12-2.md'
+    $lua = New-JournalSnapshotLua ([pscustomobject]@{ Revision = 2; Written = $T; Characters = @(
+        [pscustomobject]@{ Key = "Adra$([char]0xEB)l-Realm"; Confirmed = 9; Sessions = @(
+            [pscustomobject]@{ S = 2; Title = 'He said "end" ]] --'; First = $T; Last = $T + 5; Zones = @('Duskwood'); LevelFrom = 26; LevelTo = 27; File = 'data\x.md'; Text = "Line one`nLine two" },
+            [pscustomobject]@{ S = 1; Title = 'Older'; First = $T - 9; Last = $T - 5; Zones = @(); LevelFrom = $null; LevelTo = $null; File = 'data\y.md'; Text = $null }) }) })
+    Check 'snapshot passes its check' (Test-JournalSnapshotLua $lua) ''
+    Check 'tampered snapshot refused' (Test-JournalSnapshotLua ($lua + "`nos.exit()")) 'unexpected text outside string values'
+    Check 'ascii only' ([regex]::IsMatch($lua, '[^\x00-\x7F]')) $false
+    Check 'cut on a character' (Get-SnapshotText ('ab' + [char]0xE9 + 'cd') 3).StartsWith('ab' + [char]0xE9) $false
+
+    # The snapshot loads in Lua as the add-on reads it (needs Python with Lupa, as the Lua harnesses do).
+    $snapPath = Join-Path $tmp 'JournalSnapshot.lua'
+    [IO.File]::WriteAllText($snapPath, $lua, $Utf8)
+    $py = Get-Command python -ErrorAction SilentlyContinue
+    if ($py) {
+        $check = "from lupa.lua51 import LuaRuntime; import sys; r = LuaRuntime(); ns = r.eval('{}'); f = r.eval('function(src, ns) return assert(loadstring(src))(\'JourneyMaster\', ns) end'); f(open(sys.argv[1], encoding='utf-8').read(), ns); c = ns.journalSnapshot.characters; k = list(c.keys())[0]; s = c[k].sessions; print(k + '|' + s[1].title + '|' + s[1].text.replace('\n', '/') + '|' + str(s[2].text))"
+        $env:PYTHONIOENCODING = 'utf-8'
+        $prevEnc = [Console]::OutputEncoding
+        [Console]::OutputEncoding = $Utf8
+        try { $out = & python -c $check $snapPath 2>&1 } finally { [Console]::OutputEncoding = $prevEnc; Remove-Item Env:PYTHONIOENCODING }
+        Check 'snapshot read by Lua' ([string]$out) ("Adra$([char]0xEB)l-Realm|He said `"end`" ]] --|Line one/Line two|None")
+    } else { Write-Host 'python not found: the Lua load check was skipped' -ForegroundColor Yellow }
+
+    # Whole runs of the app ---------------------------------------------------------------------------------------------------
+    $wow = Join-Path $tmp 'wow'
+    $data = Join-Path $tmp 'data'
+    $addon = Join-Path $wow 'Interface\AddOns\JourneyMaster'
+    New-Item -ItemType Directory -Force $addon, (Join-Path $wow 'Logs'), (Join-Path $wow 'Screenshots') | Out-Null
+    Copy-Item (Join-Path $Root 'src\JourneyMaster\JournalSnapshot.lua') $addon
+    $sv = Join-Path $wow 'WTF\Account\TEST\SavedVariables\JourneyMaster.lua'
+    $calls = Join-Path $tmp 'calls'
+    $env:FAKE_CLAUDE_LOG = $calls
+    $env:FAKE_CLAUDE_INVENT = '0'
+    $shotTime = ConvertFrom-Epoch ($T + 122)
+    [IO.File]::WriteAllBytes((Join-Path $wow ("Screenshots\WoWScrnShot_" + $shotTime.ToString('MMddyy_HHmmss') + '.jpg')), [byte[]](1, 2, 3))
+    [IO.File]::Copy($logPath, (Join-Path $wow 'Logs\WoWChatLog.txt'))
+    $session1 = @(
+        @{ i = 1; s = 1; t = $T - 7200; k = 'login'; lvl = 26; z = 'Stormwind City'; sz = 'Trade District' },
+        @{ i = 2; s = 1; t = $T - 7000; k = 'quest'; act = 'accept'; id = 223; title = 'Worgen in the Woods'; giver = 'Calor'; text = 'Bring this message to Master Carevin.'; z = 'Duskwood'; sz = 'Darkshire' },
+        @{ i = 3; s = 1; t = $T - 6900; k = 'chat'; ch = 'say'; who = 'Shelly Whitemoon'; text = 'Does anyone know where the Bowyer is?'; z = 'Duskwood' },
+        @{ i = 4; s = 1; t = $T - 6800; k = 'logout'; z = 'Duskwood' }
+    )
+    $session2 = @(
+        @{ i = 5; s = 2; t = $T - 10; k = 'login'; lvl = 26; z = 'Stormwind City' },
+        @{ i = 6; s = 2; t = $T; k = 'enter'; inst = 'The Stockade'; itype = 'party'; z = 'The Stockade' },
+        @{ i = 7; s = 2; t = $T + 82; k = 'death'; recap = 'ok'; killer = 'Bazil Thredd'; spell = 'melee'; z = 'The Stockade' },
+        @{ i = 8; s = 2; t = $T + 120; k = 'level'; level = 27; z = 'The Stockade' },
+        @{ i = 9; s = 2; t = $T + 121; k = 'shot'; why = 'level'; z = 'The Stockade' },
+        @{ i = 10; s = 2; t = $T + 600; k = 'leave'; inst = 'The Stockade'; itype = 'party'; z = 'Stormwind City' },
+        @{ i = 11; s = 2; t = $T + 700; k = 'logout'; z = 'Stormwind City' }
+    )
+    $char = [ordered]@{ name = 'Baldrake Cavendell'; realm = 'Living Flame'; race = 'Human'; class = 'Warlock'; faction = 'Alliance'; level = 27; seq = 11; dropped = 0; entries = @($session1 + $session2) }
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    $run = { param([long]$Now, [string]$Running = 'no', [string[]]$More = @())
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $App -WowDir $wow -DataDir $data -ClaudePath $Fake -GameRunning $Running -Now $Now -LoreDir (Join-Path $tmp 'nolore') @More 2>&1 | Out-String }
+
+    # The game is still running: the first session (logged out, then a later session) is summarised; the dungeon session
+    # waits for the game to close.
+    $out = & $run ($T + 800) 'yes'
+    $charDir = Join-Path $data 'journeys\Baldrake Cavendell-LivingFlame'
+    Check 'events stored' @(Get-ChildItem (Join-Path $charDir 'events') -Filter '*.jsonl').Count 1
+    Check 'one session summarised while the game runs' @(Get-ChildItem (Join-Path $charDir 'sessions')).Count 1
+    $firstCalls = @(Get-ChildItem $calls).Count
+    Check 'one summary call and one overview call' $firstCalls 2
+    $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
+    True 'snapshot written' ($snap -match 'revision = 1,')
+    True 'snapshot confirms the stored entries' ($snap -match 'confirmed = 11,')
+
+    # The game closes: the dungeon session is summarised with its chat log lines.
+    $out = & $run ($T + 900) 'no'
+    $files = @(Get-ChildItem (Join-Path $charDir 'sessions') | Sort-Object Name)
+    Check 'two sessions summarised' $files.Count 2
+    $prompt = Get-Content -Raw (Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Index $firstCalls).FullName
+    True 'prompt holds the party chat from the chat log' ($prompt -match 'Seph Stormbrewer \(player\) said in party chat \(from the chat log\): "come to me"')
+    True 'prompt holds the boss yell, speaker unknown' ($prompt -match 'Bazil Thredd \(an NPC or a player outside the group\) yelled \(from the chat log\)')
+    True 'prompt holds the killer' ($prompt -match 'killed by Bazil Thredd')
+    True 'prompt leaves lines outside the window out' ($prompt -notmatch 'too early|too late')
+    True 'prompt holds the narrator rules' ($prompt -match '--system-prompt-file')
+    True 'no tools for the AI' ($prompt -match '--tools\s+--system-prompt-file')
+    $md = Read-FileText $files[1].FullName
+    True 'session file has a title' ($md -match '^# Session record')
+    True 'session file has the header line' ($md -match 'level 26 to 27')
+    True 'session file links the screenshot' ($md -match '!\[Level up, \d\d:\d\d\]\(\.\./screenshots/2026-11-12_\d{6}-level\.jpg\)')
+    Check 'screenshot copied' @(Get-ChildItem (Join-Path $charDir 'screenshots')).Count 1
+    True 'overview written' (Test-Path (Join-Path $charDir 'overview.md'))
+    $journal = Read-FileText (Join-Path $charDir 'journal.md')
+    True 'export holds both sessions in order' ($journal -match '(?s)## Overview.*## Session record.*## Session record')
+    True 'export picture paths from the character folder' ($journal -match '\]\(screenshots/2026-11-12_')
+    $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
+    True 'snapshot revision 2' ($snap -match 'revision = 2,')
+
+    # A player's edit to a session file is kept and shown in the snapshot; a rerun changes nothing and calls no AI.
+    $edited = (Read-FileText $files[0].FullName) + "`nAdded by hand.`n"
+    [IO.File]::WriteAllText($files[0].FullName, $edited, $Utf8)
+    $before = @(Get-ChildItem $calls).Count
+    $out = & $run ($T + 1000) 'no'
+    Check 'rerun calls no AI' @(Get-ChildItem $calls).Count $before
+    Check 'edited file untouched' (Read-FileText $files[0].FullName) $edited
+
+    # Phase 4: a long session is summarised in parts, and an invented name is asked for again.
+    $env:FAKE_CLAUDE_INVENT = '1'
+    $long = @(@{ i = 12; s = 3; t = $T + 5000; k = 'login'; lvl = 27; z = 'Elwynn Forest' })
+    for ($n = 0; $n -lt 40; $n++) { $long += @{ i = 13 + $n; s = 3; t = $T + 5010 + $n * 10; k = 'chat'; ch = 'say'; who = 'Shelly Whitemoon'; text = "Line number $n of a long evening in Goldshire."; z = 'Elwynn Forest' } }
+    $long += @{ i = 53; s = 3; t = $T + 5500; k = 'logout'; z = 'Elwynn Forest' }
+    $char.entries = @($session1 + $session2 + $long)
+    $char.seq = 53
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    $before = @(Get-ChildItem $calls).Count
+    $out = & $run ($T + 6000) 'no' @('-MaxPromptChars', '1200', '-NoOverview')
+    $new = @(Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Skip $before)
+    True 'long session in several parts' ($new.Count -ge 4)
+    $texts = @($new | ForEach-Object { Get-Content -Raw $_.FullName })
+    True 'a later part carries the account so far' (@($texts | Where-Object { $_ -match 'This is part 2' -and $_ -match 'The account so far' }).Count -ge 1)
+    True 'invented name asked for again' (@($texts | Where-Object { $_ -match '# Correction' -and $_ -match 'Zanzibar' }).Count -ge 1)
+    $files = @(Get-ChildItem (Join-Path $charDir 'sessions') | Sort-Object Name)
+    Check 'third session file' $files.Count 3
+    $md3 = Read-FileText $files[2].FullName
+    True 'final account invents nothing' ($md3 -notmatch 'Zanzibar')
+    True 'parts joined in order' ($md3.IndexOf('Line number 0 ') -lt $md3.LastIndexOf('Line number'))
+    $state = (Read-FileText (Join-Path $data 'state.json')) | ConvertFrom-Json
+    Check 'state records the parts' ([int]$state.Characters.'Baldrake Cavendell-LivingFlame'.Sessions.'3'.Parts -gt 1) $true
+
+    # The snapshot keeps the newest sessions in full and older ones by title only.
+    $out = & $run ($T + 6100) 'no' @('-FullSessions', '1')
+    # Nothing new, so no snapshot is written; force one by a new entry.
+    $char.entries = @($session1 + $session2 + $long + @(@{ i = 54; s = 4; t = $T + 9000; k = 'login'; z = 'Elwynn Forest' }))
+    $char.seq = 54
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    $out = & $run ($T + 9001) 'yes' @('-FullSessions', '1')
+    $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
+    Check 'texts in the snapshot' ([regex]::Matches($snap, 'text = ').Count) 1
+    True 'confirmed follows the record' ($snap -match 'confirmed = 54,')
+
+    # -Export writes journal.md without any AI call.
+    Remove-Item (Join-Path $charDir 'journal.md')
+    $before = @(Get-ChildItem $calls).Count
+    $out = & $run ($T + 9100) 'yes' @('-Export')
+    True 'export written on request' (Test-Path (Join-Path $charDir 'journal.md'))
+    Check 'export calls no AI' @(Get-ChildItem $calls).Count $before
+} finally {
+    Remove-Item Env:FAKE_CLAUDE_LOG -ErrorAction SilentlyContinue
+    Remove-Item Env:FAKE_CLAUDE_INVENT -ErrorAction SilentlyContinue
+    if ($failures -eq 0) { Remove-Item -Recurse -Force $tmp } else { Write-Host "Test files kept in $tmp" }
+}
+
+if ($failures -gt 0) { Write-Host "$failures checks failed" -ForegroundColor Red; exit 1 }
+Write-Host 'app harness: all checks passed' -ForegroundColor Green

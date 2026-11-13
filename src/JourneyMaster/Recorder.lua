@@ -97,6 +97,7 @@ function Rec.Start(db)
     char.name, char.realm = name, realm
     char.class = call(UnitClass, "player") or char.class
     char.race = call(UnitRace, "player") or char.race
+    char.sex = call(UnitSex, "player") or char.sex -- 2 male, 3 female: so the summary need not guess a pronoun
     char.faction = call(UnitFactionGroup, "player") or char.faction
     char.level = call(UnitLevel, "player") or char.level
     -- Entries the app has stored, as the snapshot says, can go.

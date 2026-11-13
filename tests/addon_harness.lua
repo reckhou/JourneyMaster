@@ -28,7 +28,7 @@ JourneyMasterDB = nil
 fire("PLAYER_LOGIN")
 local c = ns.Recorder.Char()
 check(c ~= nil, "character created")
-eq(c.name, "Baldrake Cavendell", "name") eq(c.class, "Warlock", "class") eq(c.race, "Human", "race")
+eq(c.name, "Baldrake Cavendell", "name") eq(c.class, "Warlock", "class") eq(c.race, "Human", "race") eq(c.sex, 2, "sex")
 check(JourneyMasterDB.characters["Baldrake Cavendell-LivingFlame"] == c, "saved under Name-Realm")
 check(W.chatLogging, "chat logging turned on at login")
 fire("PLAYER_ENTERING_WORLD", true, false)
