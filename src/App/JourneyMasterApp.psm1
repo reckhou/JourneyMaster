@@ -403,14 +403,16 @@ function Format-Entry($Entry, [string]$Player) {
             }
             return "Quest $title."
         }
+        # Speech of NPCs, bosses and pets (a warlock's minions speak as NPCs) is background only: the narrator rules say
+        # not to report it (owner's decision, 13 November 2026).
         'npc' {
             $verb = switch (& $f 'ch') { 'yell' { 'yelled' } 'whisper' { 'whispered' } 'emote' { 'emote' } default { 'said' } }
-            if ($verb -eq 'emote') { return "(NPC emote$fromLog) $(& $f 'text')" }
-            return "$who (NPC) $verb$fromLog`: $(Format-Quote (& $f 'text'))"
+            if ($verb -eq 'emote') { return "[background] (NPC emote$fromLog) $(& $f 'text')" }
+            return "[background] $who (NPC) $verb$fromLog`: $(Format-Quote (& $f 'text'))"
         }
         'said' {
             $verb = if ((& $f 'ch') -eq 'yell') { 'yelled' } else { 'said' }
-            return "$who (an NPC or a player outside the group) $verb$fromLog`: $(Format-Quote (& $f 'text'))"
+            return "[background] $who (an NPC, or a player outside the group) $verb$fromLog`: $(Format-Quote (& $f 'text'))"
         }
         'chat' {
             $ch = & $f 'ch'
@@ -528,6 +530,7 @@ Faithfulness:
 - Every person, place, item, quest, creature and number you name must appear in the record (or, for places, in the lore notes). If the record does not say why something happened, do not say why.
 - The quest text explains why a quest was taken; you may say what the quest asked, in your own words.
 - Lore notes are background only, so that places are described correctly. Never take events from them.
+- Lines marked [background] are what NPCs, bosses and pets (such as a warlock's minions) said or emoted. They are context only, to help you understand what was happening. Do not report, quote or paraphrase them, and do not mention a speaker only because of them.
 - Lines marked "hidden from the add-on" mean the game hid what was said; do not guess at it. You may say only that what was said there is not known.
 - Write about the events, not about your sources: never mention the record, the add-on, the chat log, the lore notes or the parts of a long session.
 - If something did not happen or was not recorded, leave it out. Do not write that the record shows nothing, or that nothing more is known.

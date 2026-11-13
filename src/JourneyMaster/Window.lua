@@ -236,7 +236,7 @@ end
 local function buildChips(parent, width)
     local x, y = 0, 0
     for _, kind in ipairs(Core.KINDS) do
-        local b = UI.FlatButton(parent, kind.label, "GameFontHighlightSmall", C.bg, C.edge, kind.colour, 8, CHIP_H)
+        local b = UI.FlatButton(parent, kind.label, "GameFontHighlightSmall", C.bg, C.edge, Core.KindHex(kind.key), 8, CHIP_H)
         if x > 0 and x + b:GetWidth() > width then x, y = 0, y + CHIP_H + CHIP_GAP end
         b:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
         b.on = true

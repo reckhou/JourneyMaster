@@ -176,8 +176,7 @@ function Journal.LogBlocks(key, item, entries, filter)
     end
     local lines = {}
     for _, e in ipairs(shown) do
-        local colour = Core.KIND_COLOUR[Core.Chip(e)] or "e8dcc0"
-        lines[#lines + 1] = TIME .. Core.Clock(e.t) .. "|r  |cff" .. colour .. tostring(Core.Describe(e)):gsub("|", "||") .. "|r"
+        lines[#lines + 1] = TIME .. Core.Clock(e.t) .. "|r  |cff" .. Core.EntryHex(e) .. tostring(Core.Describe(e)):gsub("|", "||") .. "|r"
         if #lines == LOG_CHUNK then
             blocks[#blocks + 1] = { text = table.concat(lines, "\n"), gap = 4 }
             lines = {}

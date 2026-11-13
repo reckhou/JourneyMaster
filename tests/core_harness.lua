@@ -91,6 +91,19 @@ eq(sig[1], "JMS:123-1:OPEN:4:Baldrake Cavendell-LivingFlame", "signal line")
 eq(#sig[2], Core.PAD_LEN, "padding line length")
 check((#sig - 1) * Core.PAD_LEN >= Core.PAD_BYTES, "padding fills 48 KiB")
 eq(Core.SignalLine("1", "OPEN", 1, "A|B"), "JMS:1:OPEN:1:A_B", "no | in a signal")
+-- Colours: the game's chat colours where it has them, Blizzard's defaults otherwise; emotes apart from chat.
+eq(Core.Chip({ k = "chat", ch = "emote" }), "emote", "player emotes have their own chip")
+eq(Core.Chip({ k = "chat", ch = "say" }), "chat", "say stays chat")
+eq(Core.Chip({ k = "npc", ch = "emote" }), "npc", "NPC emotes stay NPC speech")
+eq(Core.EntryHex({ k = "chat", ch = "yell" }), "ff4040", "yell colour without the game")
+eq(Core.EntryHex({ k = "npc", ch = "emote" }), "ff8040", "NPC emote colour")
+eq(Core.EntryHex({ k = "loot", q = 4 }), "a335ee", "loot in its quality colour")
+eq(Core.EntryHex({ k = "note", text = "x" }), "ffffff", "notes white")
+eq(Core.EntryHex({ k = "death" }), "ff2020", "death red")
+ChatTypeInfo = { SAY = { r = 1, g = 0, b = 0 } }
+eq(Core.EntryHex({ k = "chat", ch = "say" }), "ff0000", "the player's own chat colour wins")
+eq(Core.KindHex("chat"), "ff0000", "chip follows the player's chat colour")
+ChatTypeInfo = nil
 eq(Core.ParseStanding("RPMT:c1:L:1:say:X:You are now Friendly with Stormwind."), nil, "RPMaster lines are not standing changes")
 
 -- Zones: rapid changes merge, repeats are ignored.

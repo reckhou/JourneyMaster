@@ -20,22 +20,39 @@ Core.REPEAT_WINDOW = 10 * 60   -- the same NPC line from the same speaker within
 Core.TEXT_MAX = 600            -- characters kept from one chat or NPC line
 Core.QUEST_TEXT_MAX = 2000     -- characters kept from a quest's own text
 
--- Every kind of entry, its label in the Log tab, its filter chip and its colour ("rrggbb", from the mock-up in
--- docs/mockups/journey-window.html). Order is the order of the chips.
+-- Every kind of entry, its label in the Log tab and its filter chip, in the order of the chips. Colours follow the
+-- game's own chat colours (owner's decision, 13 November 2026): `chat` names the game's chat type, whose colour the
+-- game holds in ChatTypeInfo (the player's chat settings, Blizzard's defaults unless changed), and `hex` is the colour
+-- used where the game gives none. Notes are white, at the owner's request.
 Core.KINDS = {
-    { key = "zone", label = "Zone", colour = "9fc5e8" },
-    { key = "quest", label = "Quest", colour = "ffd966" },
-    { key = "chat", label = "Chat", colour = "e8dcc0" },
-    { key = "npc", label = "NPC speech", colour = "f6b26b" },
-    { key = "death", label = "Death", colour = "e06666" },
-    { key = "boss", label = "Boss", colour = "c27ba0" },
-    { key = "loot", label = "Loot", colour = "93c47d" },
-    { key = "level", label = "Level", colour = "ffd100" },
-    { key = "group", label = "Group", colour = "76a5af" },
-    { key = "note", label = "Note", colour = "b4a7d6" },
+    { key = "zone", label = "Zone", chat = "CHANNEL_NOTICE", hex = "ffc0c0" },
+    { key = "quest", label = "Quest", chat = "SYSTEM", hex = "ffff00" },
+    { key = "chat", label = "Chat", chat = "SAY", hex = "ffffff" },
+    { key = "emote", label = "Emote", chat = "EMOTE", hex = "ff8040" },
+    { key = "npc", label = "NPC speech", chat = "MONSTER_SAY", hex = "ffff9f" },
+    { key = "death", label = "Death", global = "RED_FONT_COLOR", hex = "ff2020" },
+    { key = "boss", label = "Boss", chat = "RAID_BOSS_EMOTE", hex = "ffdd00" },
+    { key = "loot", label = "Loot", chat = "LOOT", hex = "00aa00" },
+    { key = "level", label = "Level", chat = "COMBAT_XP_GAIN", hex = "6f6fff" },
+    { key = "group", label = "Group", chat = "PARTY", hex = "aaaaff" },
+    { key = "note", label = "Note", hex = "ffffff" },
 }
-Core.KIND_COLOUR = {}
-for _, kind in ipairs(Core.KINDS) do Core.KIND_COLOUR[kind.key] = kind.colour end
+Core.KIND = {}
+for _, kind in ipairs(Core.KINDS) do Core.KIND[kind.key] = kind end
+
+-- The colours of single channels and kinds within a chip: chat type and the colour used where the game gives none.
+Core.CHANNEL_COLOUR = {
+    chat = { say = { "SAY", "ffffff" }, yell = { "YELL", "ff4040" }, party = { "PARTY", "aaaaff" },
+        raid = { "RAID", "ff7f00" }, instance = { "INSTANCE_CHAT", "ff7f00" }, emote = { "EMOTE", "ff8040" } },
+    npc = { say = { "MONSTER_SAY", "ffff9f" }, yell = { "MONSTER_YELL", "ff4040" }, emote = { "MONSTER_EMOTE", "ff8040" },
+        whisper = { "MONSTER_WHISPER", "ffb5eb" }, party = { "MONSTER_PARTY", "aaaaff" } },
+}
+Core.KIND_COLOUR = {
+    money = { "MONEY", "ffff00" }, skill = { "SKILL", "5555ff" }, rep = { "COMBAT_FACTION_CHANGE", "8080ff" },
+    gear = { "LOOT", "00aa00" }, gap = { nil, "9d9d9d" },
+}
+-- Item quality colours (poor to heirloom), where the game gives none.
+Core.QUALITY_HEX = { [0] = "9d9d9d", "ffffff", "1eff00", "0070dd", "a335ee", "ff8000", "e6cc80", "00ccff" }
 -- Kinds that have no chip of their own are shown under one of the chips above.
 Core.CHIP_OF = {
     zone = "zone", enter = "zone", leave = "zone", login = "zone", logout = "zone", ["end"] = "zone",
@@ -433,8 +450,49 @@ function Core.Describe(e)
     return tostring(k)
 end
 
--- The chip an entry belongs to.
-function Core.Chip(e) return Core.CHIP_OF[e.k] or "note" end
+-- The chip an entry belongs to. Player emotes have their own chip, apart from chat.
+function Core.Chip(e)
+    if e.k == "chat" and e.ch == "emote" then return "emote" end
+    return Core.CHIP_OF[e.k] or "note"
+end
+
+local function hexOf(c)
+    if type(c) ~= "table" or type(c.r) ~= "number" then return nil end
+    local function byte(v) return math.floor(math.max(0, math.min(1, v)) * 255 + 0.5) end
+    return ("%02x%02x%02x"):format(byte(c.r), byte(c.g or 0), byte(c.b or 0))
+end
+
+-- "rrggbb" of one of the game's chat types (from ChatTypeInfo, the player's chat colours), or `fallback`.
+function Core.ChatHex(chatType, fallback)
+    local info = chatType and type(ChatTypeInfo) == "table" and ChatTypeInfo[chatType]
+    return hexOf(info) or fallback
+end
+
+-- "rrggbb" of a chip.
+function Core.KindHex(key)
+    local kind = Core.KIND[key]
+    if not kind then return "ffffff" end
+    if kind.global then return hexOf(_G and _G[kind.global]) or kind.hex end
+    return Core.ChatHex(kind.chat, kind.hex)
+end
+
+-- "rrggbb" of an item quality (0 poor to 7 heirloom), from the game's ITEM_QUALITY_COLORS where it has them.
+function Core.QualityHex(q)
+    q = tonumber(q)
+    if not q then return nil end
+    local c = type(ITEM_QUALITY_COLORS) == "table" and ITEM_QUALITY_COLORS[q]
+    return hexOf(c) or Core.QUALITY_HEX[q]
+end
+
+-- "rrggbb" of an entry in the Log: the game's colour for its exact channel or kind, its item's quality for loot,
+-- otherwise its chip's colour.
+function Core.EntryHex(e)
+    local byChannel = Core.CHANNEL_COLOUR[e.k]
+    local pick = byChannel and byChannel[e.ch] or Core.KIND_COLOUR[e.k]
+    if pick then return Core.ChatHex(pick[1], pick[2]) end
+    if e.k == "loot" and e.q then return Core.QualityHex(e.q) or Core.KindHex("loot") end
+    return Core.KindHex(Core.Chip(e))
+end
 
 -- The entries of a session that pass the chip filter (filter[chip] == false hides a chip).
 function Core.Filter(entries, filter)

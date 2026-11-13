@@ -210,7 +210,9 @@ JourneyMasterOther = nil
     Check 'death with killer' (Format-Entry @{ k = 'death'; z = 'Duskwood'; killer = 'Stitches'; spell = 'melee' } $P) 'Baldrake Cavendell died in Duskwood, killed by Stitches.'
     Check 'death without killer' (Format-Entry @{ k = 'death'; z = 'Duskwood' } $P) 'Baldrake Cavendell died in Duskwood.'
     Check 'own say' (Format-Entry @{ k = 'chat'; ch = 'say'; who = $P; text = 'hello' } $P) 'Baldrake Cavendell (the character) said: "hello"'
-    Check 'npc from log' (Format-Entry @{ k = 'npc'; ch = 'yell'; who = 'Bazil Thredd'; text = 'Lads!'; src = 'log' } $P) 'Bazil Thredd (NPC) yelled (from the chat log): "Lads!"'
+    Check 'npc from log' (Format-Entry @{ k = 'npc'; ch = 'yell'; who = 'Bazil Thredd'; text = 'Lads!'; src = 'log' } $P) '[background] Bazil Thredd (NPC) yelled (from the chat log): "Lads!"'
+    Check 'pet speech is background' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'As you command.' } $P) '[background] Zigzag (NPC) said: "As you command."'
+    True 'narrator told not to report background lines' ((Get-NarratorRules) -match 'Lines marked \[background\].*Do not report, quote or paraphrase them')
     Check 'gap' (Format-Entry @{ k = 'gap'; what = 'chat lines'; n = 3 } $P) '[3 chat lines here were hidden from the add-on by the game.]'
     True 'reload left out' ($null -eq (Format-Entry @{ k = 'login'; reload = $true } $P))
     True 'screenshot left out' ($null -eq (Format-Entry @{ k = 'shot'; why = 'level' } $P))
@@ -363,7 +365,7 @@ JourneyMasterOther = nil
     Check 'two sessions summarised' $files.Count 2
     $prompt = Get-Content -Raw (Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Index $firstCalls).FullName
     True 'prompt holds the party chat from the chat log' ($prompt -match 'Seph Stormbrewer \(player\) said in party chat \(from the chat log\): "come to me"')
-    True 'prompt holds the boss yell, speaker unknown' ($prompt -match 'Bazil Thredd \(an NPC or a player outside the group\) yelled \(from the chat log\)')
+    True 'prompt holds the boss yell, speaker unknown' ($prompt -match '\[background\] Bazil Thredd \(an NPC, or a player outside the group\) yelled \(from the chat log\)')
     True 'prompt holds the killer' ($prompt -match 'killed by Bazil Thredd')
     True 'prompt leaves lines outside the window out' ($prompt -notmatch 'too early|too late')
     True 'prompt holds the narrator rules' ($prompt -match '--system-prompt-file')
