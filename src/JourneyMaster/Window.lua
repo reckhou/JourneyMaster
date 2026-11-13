@@ -296,7 +296,7 @@ function Window.OnNewEntry()
     if not Window.IsShown() or pending then return end
     pending = true
     local function run() pending = false Window.Refresh() end
-    if C_Timer and C_Timer.After then C_Timer.After(0.5, run) else run() end
+    if C_Timer and C_Timer.After then C_Timer.After(0.5, ns.Recorder.Guard("the journal window", run)) else run() end
 end
 
 -- For the offline harness.

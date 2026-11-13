@@ -42,6 +42,7 @@ Every character gets the same neutral narrator: third person, past tense, factua
 - Click the **minimap button** (a book), or type `/jm`, to open the journal. The add-on menu has an entry for it too.
 - The **session list** on the left drives both tabs. **Journal** shows a session's summary. **Log** shows its raw entries, with one on/off switch for each kind of entry. **Settings** has the switches for each chat channel, NPC speech, screenshots, the minimap button and a reload prompt.
 - `/jm note <text>` adds a note about something the game cannot see.
+- If part of the add-on fails, it says so once in chat and carries on recording. `/jm errors` lists every error since login, with how often each one happened.
 - `/jm help` lists every command.
 
 ## Your files

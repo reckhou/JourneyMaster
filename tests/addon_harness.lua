@@ -241,6 +241,31 @@ eq(W.popup, "JOURNEYMASTER_RELOAD", "reload offered after a long session")
 StaticPopupDialogs.JOURNEYMASTER_RELOAD.OnAccept()
 eq(W.reloads, 1, "accepting reloads")
 
+-- Errors are reported, never hidden ---------------------------------------------------------------------------------------
+eq(#ns.Recorder.errors, 0, "no errors in the normal run")
+W.chat = {}
+local realOnEvent = ns.Recorder.OnEvent
+ns.Recorder.OnEvent = function() error("boom") end
+fire("PLAYER_MONEY")
+fire("PLAYER_MONEY")
+ns.Recorder.OnEvent = realOnEvent
+eq(#W.chat, 1, "a new error is said in chat once")
+check(W.chat[1] and W.chat[1]:find("PLAYER_MONEY", 1, true) and W.chat[1]:find("boom", 1, true), "chat line names the event and the error")
+eq(#ns.Recorder.errors, 1, "repeats are one error") eq(ns.Recorder.errors[1].count, 2, "repeats counted")
+local realShot = Screenshot
+Screenshot = function() error("no screenshot") end
+c.settings.screenshots = true
+n = count()
+ns.Recorder.Shot("level")
+W.RunTimers()
+Screenshot = realShot
+eq(count(), n, "failed screenshot not recorded")
+eq(#ns.Recorder.errors, 2, "failed screenshot reported")
+W.chat = {}
+ns.Command("errors")
+eq(#W.chat, 2, "/jm errors lists each error")
+check(W.chat[1]:find("2 times", 1, true), "/jm errors gives the count")
+
 -- Minimap placement --------------------------------------------------------------------------------------------------------
 local x, y = ns.Minimap.Offset(0, 70, false)
 check(math.abs(x - 75) < 0.01 and math.abs(y) < 0.01, "button on the circle")

@@ -48,6 +48,7 @@ ns.HELP = {
     "/jm keep <n> - recent sessions whose record stays in the add-on once the app has stored it (now %s)",
     "/jm reloadhours <n> - hours of play before the reload prompt, when that setting is on (now %s)",
     "/jm status - entries recorded and the last summary",
+    "/jm errors - every error since login, with how often it happened",
 }
 
 function ns.Command(msg)
@@ -75,6 +76,12 @@ function ns.Command(msg)
         local sessions = Core.Sessions(c.entries)
         say(#c.entries .. " entries in " .. #sessions .. " sessions. Last summary: " .. (ns.Journal.LastSummaryDate() or "none yet") .. ".")
         if (c.dropped or 0) > 0 then say(c.dropped .. " entries were dropped at the size cap.") end
+        if #Rec.errors > 0 then say(#Rec.errors .. " different errors since login. /jm errors lists them.") end
+    elseif cmd == "errors" then
+        if #Rec.errors == 0 then say("no errors since login.") end
+        for _, e in ipairs(Rec.errors) do
+            say(e.where .. (e.count > 1 and (" (" .. e.count .. " times)") or "") .. ": " .. e.msg)
+        end
     else
         for _, line in ipairs(ns.HELP) do
             say(line:format(tostring(Rec.Setting("keepSessions")), tostring(Rec.Setting("reloadHours"))))
@@ -93,7 +100,7 @@ function ns.OnLogin()
     JourneyMasterDB = JourneyMasterDB or {}
     Rec.Start(JourneyMasterDB)
     ns.Minimap.Create()
-    if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(300, maybeOfferReload) end
+    if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(300, Rec.Guard("the reload prompt", maybeOfferReload)) end
 end
 
 local frame = CreateFrame and CreateFrame("Frame")
@@ -101,15 +108,14 @@ ns.frame = frame
 if frame then
     frame:RegisterEvent("PLAYER_LOGIN")
     for _, event in ipairs(Rec.EVENTS) do
-        -- An event this client does not know raises an error; skip it rather than stop the add-on.
-        pcall(frame.RegisterEvent, frame, event)
+        -- An event this client does not know raises an error; report it and carry on with the others.
+        Rec.Try("listening for " .. event, frame.RegisterEvent, frame, event)
     end
     frame:SetScript("OnEvent", function(_, event, ...)
         if event == "PLAYER_LOGIN" then
-            ns.OnLogin()
+            Rec.Try("login", ns.OnLogin)
             return
         end
-        local ok, err = pcall(Rec.OnEvent, event, ...)
-        if not ok and ns.debug then say("error in " .. event .. ": " .. tostring(err)) end
+        Rec.Try(event, Rec.OnEvent, event, ...)
     end)
 end
