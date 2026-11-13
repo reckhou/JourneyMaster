@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: JourneyMaster
-## IconTexture: Interface\Icons\INV_Misc_Book_09
+## IconTexture: Interface\AddOns\JourneyMaster\Icon
 ## Notes: Records your character's journey and shows the AI-written summary of each play session. Needs the JourneyMaster app on your PC for the summaries.
 ## Author: Shane Hou
 ## Category: Roleplay

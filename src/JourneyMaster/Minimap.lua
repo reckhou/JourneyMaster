@@ -7,7 +7,7 @@ local Core = ns.Core
 local M = {}
 ns.Minimap = M
 
-M.ICON = "Interface\\Icons\\INV_Misc_Book_09"
+M.ICON = "Interface\\AddOns\\JourneyMaster\\Icon"
 local RADIUS = 5 -- how far outside the minimap's edge the button's centre sits
 
 -- Where the button's centre sits for an angle in degrees, on the circle or on a square minimap's edge. Pure.
