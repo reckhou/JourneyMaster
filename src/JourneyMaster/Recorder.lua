@@ -203,16 +203,20 @@ end
 
 -- The screenshot of a zone's first visit waits until the player has stayed in the zone for ZONE_STAY seconds (owner's
 -- decision, 13 November 2026), so passing through, or crossing it on a flight path, takes none. A zone counts as seen
--- once its screenshot is taken; leaving it sooner means the next visit tries again.
-Rec.ZONE_STAY = 300
-local zoneWait -- { z = zone, since = time, token }
+-- once its screenshot is taken; leaving it sooner means the next visit tries again. After any flight seen during the
+-- wait, the screenshot also waits LANDED seconds on the ground (owner's decision, 13 November 2026), so it shows the
+-- place and not the dismount. The wait is checked every ZONE_POLL seconds, which is how flight is noticed.
+Rec.ZONE_STAY, Rec.ZONE_LANDED, Rec.ZONE_POLL = 300, 60, 15
+local zoneWait -- { z = zone, since = time, flew = time last seen flying, token }
 
 local function zoneShotDue(token)
     if not zoneWait or zoneWait.token ~= token then return end -- left the zone, or a newer wait began
     local z = where()
     if z ~= zoneWait.z then zoneWait = nil return end
-    if now() - zoneWait.since < Rec.ZONE_STAY or Rec.Flying() then
-        C_Timer.After(15, Rec.Guard("the zone screenshot", function() zoneShotDue(token) end))
+    local t = now()
+    if Rec.Flying() then zoneWait.flew = t end
+    if t - zoneWait.since < Rec.ZONE_STAY or (zoneWait.flew and t - zoneWait.flew < Rec.ZONE_LANDED) then
+        C_Timer.After(Rec.ZONE_POLL, Rec.Guard("the zone screenshot", function() zoneShotDue(token) end))
         return
     end
     zoneWait = nil
@@ -228,8 +232,8 @@ function Rec.CheckZone()
     if zoneWait and zoneWait.z ~= z then zoneWait = nil end
     if not char.zonesSeen[z] and not zoneWait and Rec.Setting("screenshots") and C_Timer and C_Timer.After then
         local token = {}
-        zoneWait = { z = z, since = now(), token = token }
-        C_Timer.After(Rec.ZONE_STAY, Rec.Guard("the zone screenshot", function() zoneShotDue(token) end))
+        zoneWait = { z = z, since = now(), flew = Rec.Flying() and now() or nil, token = token }
+        C_Timer.After(Rec.ZONE_POLL, Rec.Guard("the zone screenshot", function() zoneShotDue(token) end))
     end
 end
 Rec.ZoneWait = function() return zoneWait end

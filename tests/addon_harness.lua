@@ -63,7 +63,17 @@ eq(W.shots, 1, "no zone screenshot while flying")
 W.flying = false
 tick(15)
 W.RunTimers() W.RunTimers()
-eq(W.shots, 2, "zone screenshot once landed")
+eq(W.shots, 1, "no zone screenshot within a minute of landing")
+tick(30)
+W.flying = true -- took off again: the minute starts over
+W.RunTimers() W.RunTimers()
+W.flying = false
+tick(45)
+W.RunTimers() W.RunTimers()
+eq(W.shots, 1, "the minute on the ground starts over after another flight")
+tick(15)
+W.RunTimers() W.RunTimers()
+eq(W.shots, 2, "zone screenshot a minute after landing")
 W.flying = true
 ns.Recorder.Shot("level")
 W.RunTimers() W.RunTimers()

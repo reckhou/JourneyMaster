@@ -177,7 +177,7 @@ Window.SETTINGS = {
     { "chatRaid", "Record raid chat", nil },
     { "chatInstance", "Record instance chat", nil },
     { "npcSpeech", "Record NPC speech", "What non-player characters say, yell and emote near you." },
-    { "screenshots", "Screenshots at milestones", "A screenshot at each level-up, boss kill and dungeon entry, and in a zone visited for the first time once you have stayed there 5 minutes. None while flying: it waits until you land. The app links them from the session's summary." },
+    { "screenshots", "Screenshots at milestones", "A screenshot at each level-up, boss kill and dungeon entry, and in a zone visited for the first time once you have stayed there 5 minutes. None while flying: it waits until you land, and a zone screenshot waits a further minute on the ground. The app links them from the session's summary." },
     { "reloadPrompt", "Offer a reload after a long session", "The game writes the record only at /reload or logout; a crash loses everything since. After the hours set with /jm reloadhours, JourneyMaster offers a reload." },
 }
 
