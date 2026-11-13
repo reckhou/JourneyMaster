@@ -170,11 +170,20 @@ JourneyMasterOther = nil
         ((& $stamp 80) + 'You died.'),
         ((& $stamp 81) + 'JMS:1-1:OPEN:2:Baldrake Cavendell-LivingFlame'),
         ((& $stamp 82) + 'JMP:1-1:00001:......'),
+        # RPMaster's hidden lines, some holding text that would otherwise read as chat or a death.
+        ((& $stamp 83) + 'RPMT:c1:L:1:say:Seph Stormbrewer:Seph Stormbrewer says: on my way'),
+        ((& $stamp 84) + 'RPMT:c1:HEAD:scene=1;login=2'),
+        ((& $stamp 85) + 'RPMP:c1:00001:You died.'),
+        ((& $stamp 86) + 'RPMS:s1:OPEN:Baldrake:file'),
+        ((& $stamp 87) + 'RPMD:r1:Defias Prisoner dies, you gain 60 experience.'),
+        ((& $stamp 88) + 'PAD:p1:00001:You receive loot: Linen Cloth'),
+        ((& $stamp 89) + 'BEGIN:p1:system'),
         ((& $stamp 5000) + '|Hchannel:PARTY|h[Party]|h After Window: too late')
     )
     [IO.File]::WriteAllText($logPath, ($logLines -join "`r`n") + "`r`n", $Utf8)
     $inWin = @(Read-ChatLogWindows $logPath $win)
-    Check 'lines in the window only, signal lines left out' $inWin.Count 7
+    Check 'lines in the window only, signal lines and RPMaster lines left out' $inWin.Count 7
+    True 'an RPMaster line holding a signal is not one' ($null -eq (ConvertFrom-SignalLine ((& $stamp 83) + 'RPMT:c1:L:1:say:X:JMS:1-9:OPEN:2:Baldrake Cavendell-LivingFlame')))
     $sig = ConvertFrom-SignalLine ((& $stamp 81) + 'JMS:1-1:OPEN:2:Baldrake Cavendell-LivingFlame')
     Check 'signal kind' $sig.Kind 'OPEN'
     Check 'signal session' $sig.S 2

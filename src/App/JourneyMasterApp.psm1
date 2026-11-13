@@ -228,7 +228,9 @@ function ConvertFrom-ChatLogLine([string]$Line, [long]$Near) {
     $t = ConvertFrom-ChatLogStamp ([int]$m.Groups[1].Value) ([int]$m.Groups[2].Value) ([int]$m.Groups[3].Value) ([int]$m.Groups[4].Value) ([int]$m.Groups[5].Value) $Near
     if ($null -eq $t) { return $null }
     $body = $m.Groups[6].Value
-    if ($body -match '^RPM[A-Z]*:' -or $body -match '^JM[SP]:') { return $null }
+    # Hidden lines other add-ons write into the log, never chat: RPMaster's transcripts, padding, signals and draft
+    # requests (RPMT, RPMP, RPMS, RPMD), its old ClaudeCapture probe (PAD, BEGIN), and JourneyMaster's own signals.
+    if ($body -match '^(RPM[A-Z]*|JM[SP]|PAD|BEGIN):') { return $null }
     $g = [regex]::Match($body, '^\|Hchannel:(PARTY|RAID|INSTANCE_CHAT|RAID_WARNING)\|h\[([^\]]+)\]\|h (.+?): (.*)$')
     if ($g.Success) {
         $ch = switch ($g.Groups[1].Value) { 'PARTY' { 'party' } 'INSTANCE_CHAT' { 'instance' } default { 'raid' } }

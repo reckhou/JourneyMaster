@@ -91,6 +91,7 @@ eq(sig[1], "JMS:123-1:OPEN:4:Baldrake Cavendell-LivingFlame", "signal line")
 eq(#sig[2], Core.PAD_LEN, "padding line length")
 check((#sig - 1) * Core.PAD_LEN >= Core.PAD_BYTES, "padding fills 48 KiB")
 eq(Core.SignalLine("1", "OPEN", 1, "A|B"), "JMS:1:OPEN:1:A_B", "no | in a signal")
+eq(Core.ParseStanding("RPMT:c1:L:1:say:X:You are now Friendly with Stormwind."), nil, "RPMaster lines are not standing changes")
 
 -- Zones: rapid changes merge, repeats are ignored.
 local z = Core.Char({}, "Z-R")
