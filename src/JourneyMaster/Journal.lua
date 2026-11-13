@@ -76,7 +76,9 @@ function Journal.FilePath(key, item)
     return Journal.DATA_HINT .. key .. "\\sessions\\"
 end
 
-local GOLD, GREY, WHITE = "|cffffd100", "|cff9d9d9d", "|cffffffff"
+-- Colours of the mock-up (docs/mockups/journey-window.html): titles, notes, paths and Log times. Body text takes
+-- the mock-up's parchment white from UI.LayoutBlocks.
+local GOLD, GREY, WHITE, TIME = "|cffffd100", "|cffa8997a", "|cffffffff", "|cff7d7260"
 
 -- Turns a summary's Markdown into text blocks for UI.LayoutBlocks: headings in gold, bullets with a dot, emphasis
 -- marks removed, pictures as a note. The game cannot show the pictures, so they are named instead.
@@ -153,7 +155,8 @@ function Journal.LogBlocks(key, item, entries, filter)
     end
     local lines = {}
     for _, e in ipairs(shown) do
-        lines[#lines + 1] = GREY .. Core.Clock(e.t) .. "|r  " .. tostring(Core.Describe(e)):gsub("|", "||")
+        local colour = Core.KIND_COLOUR[Core.Chip(e)] or "e8dcc0"
+        lines[#lines + 1] = TIME .. Core.Clock(e.t) .. "|r  |cff" .. colour .. tostring(Core.Describe(e)):gsub("|", "||") .. "|r"
         if #lines == LOG_CHUNK then
             blocks[#blocks + 1] = { text = table.concat(lines, "\n"), gap = 4 }
             lines = {}

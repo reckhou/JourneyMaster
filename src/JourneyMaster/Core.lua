@@ -20,19 +20,22 @@ Core.REPEAT_WINDOW = 10 * 60   -- the same NPC line from the same speaker within
 Core.TEXT_MAX = 600            -- characters kept from one chat or NPC line
 Core.QUEST_TEXT_MAX = 2000     -- characters kept from a quest's own text
 
--- Every kind of entry, its label in the Log tab, and its filter chip. Order is the order of the chips.
+-- Every kind of entry, its label in the Log tab, its filter chip and its colour ("rrggbb", from the mock-up in
+-- docs/mockups/journey-window.html). Order is the order of the chips.
 Core.KINDS = {
-    { key = "zone", label = "Zone" },
-    { key = "quest", label = "Quest" },
-    { key = "chat", label = "Chat" },
-    { key = "npc", label = "NPC speech" },
-    { key = "death", label = "Death" },
-    { key = "boss", label = "Boss" },
-    { key = "loot", label = "Loot" },
-    { key = "level", label = "Level" },
-    { key = "group", label = "Group" },
-    { key = "note", label = "Note" },
+    { key = "zone", label = "Zone", colour = "9fc5e8" },
+    { key = "quest", label = "Quest", colour = "ffd966" },
+    { key = "chat", label = "Chat", colour = "e8dcc0" },
+    { key = "npc", label = "NPC speech", colour = "f6b26b" },
+    { key = "death", label = "Death", colour = "e06666" },
+    { key = "boss", label = "Boss", colour = "c27ba0" },
+    { key = "loot", label = "Loot", colour = "93c47d" },
+    { key = "level", label = "Level", colour = "ffd100" },
+    { key = "group", label = "Group", colour = "76a5af" },
+    { key = "note", label = "Note", colour = "b4a7d6" },
 }
+Core.KIND_COLOUR = {}
+for _, kind in ipairs(Core.KINDS) do Core.KIND_COLOUR[kind.key] = kind.colour end
 -- Kinds that have no chip of their own are shown under one of the chips above.
 Core.CHIP_OF = {
     zone = "zone", enter = "zone", leave = "zone", login = "zone", logout = "zone",

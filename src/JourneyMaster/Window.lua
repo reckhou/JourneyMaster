@@ -1,6 +1,8 @@
 -- JourneyMaster window (mock-up revision B in docs/mockups/journey-window.html): two panes, about 700 by 500 pixels.
 -- A session list on the left drives the reader on the right; the Journal, Log and Settings tabs run along the top.
 -- Journal shows a session's summary, Log its raw entries with one on/off chip per kind, Settings the switches.
+-- The frame, tabs, list, chips and Log lines use the mock-up's colours (UI.C and Core.KINDS), drawn with plain
+-- textures rather than the game's frame templates.
 -- The foot shows the entries recorded, the date of the last summary and a button that reloads the interface, which
 -- loads a new snapshot from the app.
 -- Abbreviation: UI = user interface.
@@ -9,8 +11,13 @@ local Core, UI, Journal = ns.Core, ns.UI, ns.Journal
 local Window = {}
 ns.Window = Window
 
-local WIDTH, HEIGHT, LIST_WIDTH, ROW_HEIGHT = 720, 500, 210, 38
-local GREY = "|cff9d9d9d"
+local WIDTH, HEIGHT, LIST_WIDTH, ROW_HEIGHT = 720, 500, 215, 40
+local EDGE = 3            -- window border, pixels
+local TITLE_H, TABS_H, FOOT_H = 26, 22, 30
+local BODY_TOP = EDGE + TITLE_H + 6 + TABS_H + 2 -- title bar, gap, tabs, the line under the tabs
+local READER_PAD = 10     -- space round the reader's text and chips
+local CHIP_H, CHIP_GAP = 18, 4
+local C = UI.C
 local TABS = { { "journal", "Journal" }, { "log", "Log" }, { "settings", "Settings" } }
 
 local win
@@ -56,18 +63,22 @@ end
 local function makeRow(i)
     local row = CreateFrame("Button", nil, list.area.child)
     row:SetHeight(ROW_HEIGHT)
-    row.bg = UI.Shade(row, 1, 0.82, 0, 0.15)
+    row.bg = UI.Fill(row, C.on, "BACKGROUND")
+    row.bg:SetAllPoints()
     row.bg:Hide()
-    row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    UI.Fill(row, "ffffff", "HIGHLIGHT", 0.06):SetAllPoints()
+    -- As in the mock-up: the date small and dim above the title.
+    row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.sub:SetPoint("TOPLEFT", 10, -5)
+    row.sub:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+    row.sub:SetJustifyH("LEFT")
+    row.sub:SetTextColor(UI.RGB(C.dim))
+    if row.sub.SetWordWrap then row.sub:SetWordWrap(false) end
     row.title = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    row.title:SetPoint("TOPLEFT", 6, -4)
-    row.title:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+    row.title:SetPoint("TOPLEFT", row.sub, "BOTTOMLEFT", 0, -3)
+    row.title:SetPoint("RIGHT", row, "RIGHT", -6, 0)
     row.title:SetJustifyH("LEFT")
     if row.title.SetWordWrap then row.title:SetWordWrap(false) end
-    row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    row.sub:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -3)
-    row.sub:SetPoint("RIGHT", row, "RIGHT", -4, 0)
-    row.sub:SetJustifyH("LEFT")
     row:SetScript("OnClick", function(self)
         selected = self.s
         Window.Refresh()
@@ -86,14 +97,14 @@ local function showList()
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", list.area.child, "TOPLEFT", 0, -y)
         row:SetPoint("RIGHT", list.area.child, "RIGHT", 0, 0)
-        local title = item.title or "?"
-        if item.state == "brief" then title = GREY .. title .. "|r" end
-        if item.state == "pending" then title = "|cffffb347" .. title .. "|r" end
-        row.title:SetText(title)
+        local on = item.s == selected
+        row.title:SetText(item.title or "?")
+        -- Mock-up: the chosen row in gold, older title-only sessions dim, the rest soft gold.
+        row.title:SetTextColor(UI.RGB(on and C.gold or item.state == "brief" and C.dim or C.soft))
         local sub = Core.Clock(item.first or 0, "%d %b %Y, %H:%M")
         if item.entries and item.entries > 0 then sub = sub .. " \194\183 " .. item.entries .. " entries" end
         row.sub:SetText(sub)
-        row.bg:SetShown(item.s == selected)
+        row.bg:SetShown(on)
         row:Show()
         y = y + ROW_HEIGHT
     end
@@ -134,11 +145,13 @@ local function buildSettings(panel)
         local label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         label:SetPoint("LEFT", c, "RIGHT", 4, 0)
         label:SetText(s[2])
+        label:SetTextColor(UI.RGB(C.text))
         if s[3] then UI.Tooltip(c, s[2], s[3]) end
         settingsChecks[s[1]] = c
         y = y - 28
     end
-    local note = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local note = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    note:SetTextColor(UI.RGB(C.muted))
     note:SetPoint("TOPLEFT", 12, y - 8)
     note:SetPoint("RIGHT", panel, "RIGHT", -12, 0)
     note:SetJustifyH("LEFT")
@@ -152,44 +165,54 @@ end
 
 -- The window -------------------------------------------------------------------------------------------------------
 
+local function paintTabs()
+    for i, t in ipairs(TABS) do
+        local b, on = tabButtons[i], t[1] == tab
+        b.box.fill:SetColorTexture(UI.RGB(on and C.on or C.raised))
+        b.label:SetTextColor(UI.RGB(on and C.gold or C.muted))
+    end
+end
+
 local function selectTab(name)
     tab = name
-    for i, t in ipairs(TABS) do
-        if t[1] == name then
-            if PanelTemplates_SetTab then PanelTemplates_SetTab(win, i) end
-        end
-    end
+    paintTabs()
     win.sessions:SetShown(name ~= "settings")
     win.settings:SetShown(name == "settings")
     win.chipBar:SetShown(name == "log")
-    reader.area.frame:SetPoint("TOPLEFT", win.sessions, "TOPLEFT", LIST_WIDTH + 10, name == "log" and -30 or 0)
+    reader.area.frame:SetPoint("TOPLEFT", reader.pane, "TOPLEFT", 0, name == "log" and -win.chipBar.used or 0)
     Window.Refresh()
 end
 
-local function buildChips(parent)
-    local x = 0
+-- One chip per kind, in the kind's colour, as in the mock-up: full strength when shown, faded when hidden. Chips wrap
+-- onto a new row when the reader is too narrow for them all. Returns the height the chips use.
+local function buildChips(parent, width)
+    local x, y = 0, 0
     for _, kind in ipairs(Core.KINDS) do
-        local b = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-        b:SetSize(22, 22)
-        b:SetPoint("LEFT", parent, "LEFT", x, 0)
-        b:SetChecked(true)
-        local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        label:SetPoint("LEFT", b, "RIGHT", 0, 0)
-        label:SetText(kind.label)
+        local b = UI.FlatButton(parent, kind.label, "GameFontHighlightSmall", C.bg, C.edge, kind.colour, 8, CHIP_H)
+        if x > 0 and x + b:GetWidth() > width then x, y = 0, y + CHIP_H + CHIP_GAP end
+        b:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -y)
+        b.on = true
+        b.SetChecked = function(self, v) self.on = v and true or false self:SetAlpha(self.on and 1 or 0.4) end
+        b.GetChecked = function(self) return self.on end
         b:SetScript("OnClick", function(self)
-            if self:GetChecked() then filter[kind.key] = nil else filter[kind.key] = false end
+            self:SetChecked(not self.on)
+            if self.on then filter[kind.key] = nil else filter[kind.key] = false end
             showReader()
         end)
+        UI.Tooltip(b, kind.label, "Click to show or hide these entries.")
         chips[kind.key] = b
-        x = x + 24 + (label:GetStringWidth() or 40) + 6
+        x = x + b:GetWidth() + CHIP_GAP
     end
+    return y + CHIP_H
 end
 
 local function create()
-    win = CreateFrame("Frame", "JourneyMasterFrame", UIParent, "BasicFrameTemplateWithInset")
+    -- The frame: dark brown with a bronze border and a thin black outline, as in the mock-up.
+    win = CreateFrame("Frame", "JourneyMasterFrame", UIParent)
     win:SetSize(WIDTH, HEIGHT)
     win:SetPoint("CENTER", 0, 40)
     win:SetFrameStrata("HIGH")
+    win:SetToplevel(true)
     win:SetClampedToScreen(true)
     win:SetMovable(true)
     win:EnableMouse(true)
@@ -198,62 +221,101 @@ local function create()
     win:SetScript("OnDragStop", win.StopMovingOrSizing)
     if UISpecialFrames then tinsert(UISpecialFrames, "JourneyMasterFrame") end -- closes with Escape
     win:Hide()
-    win.titleText = win:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    win.titleText:SetPoint("TOP", 0, -5)
+    local outline = UI.Fill(win, "000000", "BACKGROUND")
+    outline:SetDrawLayer("BACKGROUND", -8)
+    outline:SetPoint("TOPLEFT", -1, 1)
+    outline:SetPoint("BOTTOMRIGHT", 1, -1)
+    UI.Box(win, C.bg, C.edge, EDGE)
 
-    -- Tabs along the top.
+    -- Title bar: a band darkening downwards with a bronze line under it, the title in gold, the close button right.
+    local bar = CreateFrame("Frame", nil, win)
+    bar:SetPoint("TOPLEFT", EDGE, -EDGE)
+    bar:SetPoint("TOPRIGHT", -EDGE, -EDGE)
+    bar:SetHeight(TITLE_H)
+    UI.Box(bar, C.raised, C.edge, 2, "B")
+    local top = UI.Fill(bar, C.titleTop, "BACKGROUND")
+    top:SetDrawLayer("BACKGROUND", 1)
+    top:SetPoint("TOPLEFT")
+    top:SetPoint("TOPRIGHT")
+    top:SetHeight(TITLE_H / 2)
+    win.titleText = bar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    win.titleText:SetPoint("LEFT", 10, 1)
+    win.titleText:SetTextColor(UI.RGB(C.gold))
+    local close = CreateFrame("Button", nil, bar, "UIPanelCloseButton")
+    close:SetSize(26, 26)
+    close:SetPoint("RIGHT", 1, 0)
+    close:SetScript("OnClick", function() win:Hide() end)
+
+    -- Tabs under the title, open at the bottom onto a bronze line.
     for i, t in ipairs(TABS) do
-        local b = CreateFrame("Button", "JourneyMasterFrameTab" .. i, win, "PanelTopTabButtonTemplate")
-        b:SetID(i)
-        b:SetText(t[2])
+        local b = UI.FlatButton(win, t[2], "GameFontNormal", C.raised, C.edge, C.muted, 16, TABS_H)
+        b.box.edges[2]:Hide() -- the bottom edge
         b:SetScript("OnClick", function() selectTab(t[1]) end)
-        if i == 1 then b:SetPoint("TOPLEFT", win, "TOPLEFT", 12, -26) else b:SetPoint("LEFT", tabButtons[i - 1], "RIGHT", 2, 0) end
-        if PanelTemplates_TabResize then PanelTemplates_TabResize(b, 0) end
+        if i == 1 then b:SetPoint("TOPLEFT", win, "TOPLEFT", EDGE + 8, -(EDGE + TITLE_H + 6))
+        else b:SetPoint("LEFT", tabButtons[i - 1], "RIGHT", 4, 0) end
         tabButtons[i] = b
     end
-    if PanelTemplates_SetNumTabs then PanelTemplates_SetNumTabs(win, #TABS) end
+    local line = UI.Fill(win, C.edge, "BORDER")
+    line:SetPoint("TOPLEFT", EDGE, -(BODY_TOP - 2))
+    line:SetPoint("TOPRIGHT", -EDGE, -(BODY_TOP - 2))
+    line:SetHeight(2)
 
-    -- Sessions and reader.
+    -- Sessions on the left, behind a bronze line; the reader on the right.
     local body = CreateFrame("Frame", nil, win)
-    body:SetPoint("TOPLEFT", 12, -60)
-    body:SetPoint("BOTTOMRIGHT", -12, 36)
+    body:SetPoint("TOPLEFT", EDGE, -BODY_TOP)
+    body:SetPoint("BOTTOMRIGHT", -EDGE, EDGE + FOOT_H)
     win.sessions = body
-    list.area = UI.ScrollArea(body)
-    list.area.frame:SetPoint("TOPLEFT", 0, 0)
-    list.area.frame:SetPoint("BOTTOMLEFT", 0, 0)
-    list.area.frame:SetWidth(LIST_WIDTH)
-    UI.Shade(list.area.frame, 0, 0, 0, 0.3)
+    local listPane = CreateFrame("Frame", nil, body)
+    listPane:SetPoint("TOPLEFT", 0, 0)
+    listPane:SetPoint("BOTTOMLEFT", 0, 0)
+    listPane:SetWidth(LIST_WIDTH + 2)
+    UI.Box(listPane, nil, C.edge, 2, "R")
+    list.area = UI.ScrollArea(listPane)
+    list.area.frame:SetPoint("TOPLEFT", 0, -6)
+    list.area.frame:SetPoint("BOTTOMRIGHT", -2, 6)
     list.area.onResize = function() showList() end
 
-    win.chipBar = CreateFrame("Frame", nil, body)
-    win.chipBar:SetPoint("TOPLEFT", LIST_WIDTH + 10, 0)
-    win.chipBar:SetPoint("RIGHT", body, "RIGHT", 0, 0)
-    win.chipBar:SetHeight(24)
-    buildChips(win.chipBar)
+    reader.pane = CreateFrame("Frame", nil, body)
+    reader.pane:SetPoint("TOPLEFT", LIST_WIDTH + 2, 0)
+    reader.pane:SetPoint("BOTTOMRIGHT", 0, 0)
 
-    reader.area = UI.ScrollArea(body)
-    reader.area.frame:SetPoint("TOPLEFT", LIST_WIDTH + 10, 0)
-    reader.area.frame:SetPoint("BOTTOMRIGHT", 0, 0)
-    UI.Shade(reader.area.frame, 0.16, 0.13, 0.07, 1)
+    win.chipBar = CreateFrame("Frame", nil, reader.pane)
+    win.chipBar:SetPoint("TOPLEFT", READER_PAD, -8)
+    win.chipBar:SetPoint("RIGHT", reader.pane, "RIGHT", -READER_PAD, 0)
+    local chipsHeight = buildChips(win.chipBar, WIDTH - 2 * EDGE - LIST_WIDTH - 2 - 2 * READER_PAD)
+    win.chipBar:SetHeight(chipsHeight)
+    win.chipBar.used = 8 + chipsHeight + 2
+
+    reader.area = UI.ScrollArea(reader.pane)
+    reader.area.padding = READER_PAD
+    reader.area.frame:SetPoint("TOPLEFT", reader.pane, "TOPLEFT", 0, 0)
+    reader.area.frame:SetPoint("BOTTOMRIGHT", -4, 4)
     reader.area.onResize = function() showReader() end
 
     win.settings = CreateFrame("Frame", nil, win)
-    win.settings:SetPoint("TOPLEFT", 12, -60)
-    win.settings:SetPoint("BOTTOMRIGHT", -12, 36)
+    win.settings:SetPoint("TOPLEFT", EDGE + 8, -BODY_TOP)
+    win.settings:SetPoint("BOTTOMRIGHT", -(EDGE + 8), EDGE + FOOT_H)
     win.settings:Hide()
     buildSettings(win.settings)
 
-    -- Foot.
+    -- Foot: a bronze line, the counts in muted text, the reload button in the mock-up's red and gold. The button is as
+    -- wide as its label, and the counts stop short of it.
     footer = CreateFrame("Frame", nil, win)
-    footer:SetPoint("BOTTOMLEFT", 12, 8)
-    footer:SetPoint("BOTTOMRIGHT", -12, 8)
-    footer:SetHeight(24)
-    footer.text = footer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    footer.text:SetPoint("LEFT", 2, 0)
-    footer.reload = UI.Button(footer, 150, "Reload for new summaries", function() ReloadUI() end)
-    footer.reload:SetPoint("RIGHT", 0, 0)
+    footer:SetPoint("BOTTOMLEFT", EDGE, EDGE)
+    footer:SetPoint("BOTTOMRIGHT", -EDGE, EDGE)
+    footer:SetHeight(FOOT_H)
+    UI.Box(footer, nil, C.edge, 2, "T")
+    footer.reload = UI.FlatButton(footer, "Reload for new summaries", "GameFontNormalSmall", C.button, C.buttonEdge, C.gold, 12, 20)
+    footer.reload:SetScript("OnClick", function() ReloadUI() end)
+    footer.reload:SetPoint("RIGHT", -10, -1)
     UI.Tooltip(footer.reload, "Reload the interface",
         "Loads the newest summaries from the app on your PC. The game also writes the record to disk, so the app can summarise it.")
+    footer.text = footer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    footer.text:SetPoint("LEFT", 10, -1)
+    footer.text:SetPoint("RIGHT", footer.reload, "LEFT", -10, 0)
+    footer.text:SetJustifyH("LEFT")
+    footer.text:SetTextColor(UI.RGB(C.muted))
+    if footer.text.SetWordWrap then footer.text:SetWordWrap(false) end
 
     selectTab("journal")
 end
