@@ -20,6 +20,15 @@ function Journal.SnapChar(key)
     return snap.characters and snap.characters[key] or nil
 end
 
+-- Whether the snapshot lists session s of a character, so the app has summarised it.
+function Journal.IsSummarised(key, s)
+    local snapChar = Journal.SnapChar(key)
+    for _, sess in ipairs(snapChar and snapChar.sessions or {}) do
+        if sess.s == s then return true end
+    end
+    return false
+end
+
 -- The sessions of a character, newest first.
 function Journal.List(c, key)
     local byS = {}
@@ -139,10 +148,10 @@ function Journal.JournalBlocks(key, item)
         blocks[#blocks + 1] = { gap = 4, text = GREY .. "Its record was trimmed from the add-on and is kept under events\\ in the same folder.|r" }
     else
         blocks[#blocks + 1] = { gap = 8, text = "Not summarised yet." }
-        blocks[#blocks + 1] = { gap = 4, text = GREY .. "A session ends after 30 minutes without play, or when you finish it "
-            .. "(the Finish session button, or /jm end). Logging out and back in sooner keeps the same session. Once it has "
-            .. "ended and the game has written the record (at a /reload or logout), the JourneyMaster app on your PC summarises "
-            .. "it, and the summary shows here at your next /reload or login. The Log tab shows this session's record now.|r" }
+        blocks[#blocks + 1] = { gap = 4, text = GREY .. "The JourneyMaster app on your PC summarises a session when you finish "
+            .. "it (the Finish session button, or /jm end, then a reload), or 30 minutes after you last played once the game "
+            .. "is closed. Logging out and back in within 30 minutes keeps the same session. The summary shows here at your "
+            .. "next /reload or login. The Log tab shows this session's record now.|r" }
     end
     return blocks
 end

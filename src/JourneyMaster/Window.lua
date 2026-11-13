@@ -367,7 +367,7 @@ local function create()
     footer.finish:SetScript("OnClick", finishSession)
     footer.finish:Hide()
     UI.Tooltip(footer.finish, "Finish this session",
-        "Ends the session now, so the app can summarise it without waiting 30 minutes. Whatever you do next starts a new session. Also /jm end.")
+        "Ends the session now, so the app can summarise it after a reload, without waiting for you to close the game. Whatever you do next starts a new session. Also /jm end.")
     footer.text = footer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     footer.text:SetPoint("LEFT", 10, -1)
     footer.text:SetPoint("RIGHT", footer.reload, "LEFT", -10, 0)

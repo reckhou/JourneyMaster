@@ -277,6 +277,18 @@ eq(c.session, sNow + 1, "the next entry starts a new session")
 tick(1801)
 ns.Command("note after a long break")
 eq(c.session, sNow + 2, "a 30-minute gap starts a new session")
+-- If the app has already summarised the session in progress, the next entry after a login starts a new one.
+local snapSessions = ns.journalSnapshot.characters["Baldrake Cavendell-LivingFlame"].sessions
+snapSessions[#snapSessions + 1] = { s = c.session, title = "Summarised too early", first = W.now, last = W.now, zones = {} }
+fire("PLAYER_LOGIN")
+tick(5)
+ns.Command("note after the reload")
+eq(c.session, sNow + 3, "a session the app has summarised is not added to")
+table.remove(snapSessions)
+fire("PLAYER_LOGIN")
+tick(5)
+ns.Command("note after another reload")
+eq(c.session, sNow + 3, "a session the app has not summarised continues after a login")
 
 -- Reload prompt ------------------------------------------------------------------------------------------------------------
 c.settings.reloadPrompt = true

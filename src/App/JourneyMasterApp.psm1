@@ -143,17 +143,22 @@ function Test-HasInstance($Session) {
     $false
 }
 
-# Whether a session is over and ready to summarise. Over: a later session exists, 30 minutes have passed since its last
-# entry, or the player finished it (an "end" entry, from /jm end or Finish session). A logout alone does not end it, even
-# with the game closed: logging back in within 30 minutes continues the session (owner's decision, 13 November 2026).
-# A session with a dungeon or raid waits for the game to close, because the chat log reaches disk at exit, unless it
-# ended more than two hours ago or was finished by the player (finishing forces the chat log to disk).
+# Whether a session is over and ready to summarise:
+# - The player finished it (an "end" entry, from /jm end or Finish session): at once. Finishing also forces the chat log
+#   to disk, so a dungeon in it need not wait.
+# - A later session of the same character exists: the add-on never adds to a session after starting the next one.
+# - It is the character's latest session: only once the game is closed and 30 minutes have passed since its last entry.
+#   While the game runs, the record on disk is only as new as the last /reload or logout, so its age says nothing about
+#   whether the player is still playing; judging by it could summarise a session in progress and lose the rest of it.
+#   A logout alone does not end a session: logging back in within 30 minutes continues it (owner's decision,
+#   13 November 2026).
+# A finished session with a dungeon or raid still waits for the game to close, because the chat log reaches disk at exit,
+# unless it ended more than two hours ago.
 function Test-SessionFinished($Session, [bool]$IsLatest, [long]$Now, [bool]$GameRunning, [int]$GapSeconds = 1800) {
+    if ((Get-Field $Session.Entries[-1] 'k') -eq 'end') { return $true }
     $idle = $Now - $Session.Last
-    $finished = (Get-Field $Session.Entries[-1] 'k') -eq 'end'
-    $over = (-not $IsLatest) -or ($idle -gt $GapSeconds) -or $finished
-    if (-not $over) { return $false }
-    if ($GameRunning -and -not $finished -and (Test-HasInstance $Session) -and $idle -lt 7200) { return $false }
+    if ($IsLatest -and ($GameRunning -or $idle -le $GapSeconds)) { return $false }
+    if ($GameRunning -and (Test-HasInstance $Session) -and $idle -lt 7200) { return $false }
     $true
 }
 

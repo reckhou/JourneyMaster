@@ -12,8 +12,8 @@ Each run (or each change of the add-on's saved file, with -Watch):
   3. Rewrites the journey overview (overview.md) and the whole-journal export (journal.md).
   4. Writes JournalSnapshot.lua into the add-on's folder, with thumbnails of the newest sessions' screenshots; the game
      shows it at the next /reload or login.
-A session is finished 30 minutes after its last entry (a logout alone does not finish it), or at once when the player
-finishes it in the game. With -Watch the app also reads the add-on's signals from the end of the chat log every 2 seconds
+A session is finished at once when the player finishes it in the game, or once the game is closed and 30 minutes have
+passed since its last entry (a logout alone does not finish it; while the game runs, the record on disk may be stale). With -Watch the app also reads the add-on's signals from the end of the chat log every 2 seconds
 (Open screenshots, Finish session; see src\JourneyMaster\Signal.lua).
 Examples:
   powershell -NoProfile -ExecutionPolicy Bypass -File src\App\JourneyMaster.ps1
@@ -317,6 +317,8 @@ function Invoke-SessionSummary($key, $c, $Session) {
     $true
 }
 
+$script:LateWarned = @{}
+
 function Update-Summaries {
     $running = Test-GameRunning
     $now = NowEpoch
@@ -326,7 +328,16 @@ function Update-Summaries {
         $sessions = @(Get-Sessions (Read-EventEntries (Join-Path (Get-CharDir $c) 'events')))
         for ($i = 0; $i -lt $sessions.Count; $i++) {
             $s = $sessions[$i]
-            if ($c.Sessions.ContainsKey("$($s.S)")) { continue }
+            if ($c.Sessions.ContainsKey("$($s.S)")) {
+                # Entries after a session was summarised are kept in events\ but are in no summary. The finishing rules
+                # (Test-SessionFinished) and the add-on's login check should prevent it; say so if it happens anyway.
+                $late = @($s.Entries | Where-Object { [long](Get-Field $_ 't') -gt [long]$c.Sessions["$($s.S)"].Last -and (Get-Field $_ 'k') -ne 'logout' })
+                if ($late.Count -gt 0 -and -not $script:LateWarned.ContainsKey("$key/$($s.S)")) {
+                    $script:LateWarned["$key/$($s.S)"] = $true
+                    Say "$key`: $($late.Count) entries arrived after session $($s.S) was summarised; they are kept in events\ but are not in its summary" 'Yellow'
+                }
+                continue
+            }
             if (-not (Test-SessionFinished $s ($i -eq $sessions.Count - 1) $now $running)) { Dbg "$key session $($s.S) is not finished yet"; continue }
             if (Invoke-SessionSummary $key $c $s) {
                 $script:Changed = $true

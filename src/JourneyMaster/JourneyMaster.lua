@@ -44,7 +44,7 @@ ns.HELP = {
     "/jm - open or close the journal",
     "/jm log - open the Log tab",
     "/jm note <text> - add a note to the record (what the game cannot see)",
-    "/jm end - finish this session now, so the app can summarise it without waiting 30 minutes",
+    "/jm end - finish this session now, so the app summarises it after a reload, without waiting for the game to close",
     "/jm minimap - show or hide the minimap button",
     "/jm keep <n> - recent sessions whose record stays in the add-on once the app has stored it (now %s)",
     "/jm reloadhours <n> - hours of play before the reload prompt, when that setting is on (now %s)",
@@ -101,7 +101,12 @@ SlashCmdList.JOURNEYMASTER = function(msg) ns.Command(msg) end
 
 function ns.OnLogin()
     JourneyMasterDB = JourneyMasterDB or {}
-    Rec.Start(JourneyMasterDB)
+    local c = Rec.Start(JourneyMasterDB)
+    -- If the app has already summarised the session in progress (the snapshot lists it), whatever comes next must not
+    -- join it, or it would be in no summary: the next entry starts a new session.
+    if c and (c.session or 0) > 0 and ns.Journal.IsSummarised(Core.CharKey(c.name, c.realm), c.session) then
+        c.endSession = true
+    end
     ns.Minimap.Create()
     if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(300, Rec.Guard("the reload prompt", maybeOfferReload)) end
 end

@@ -120,7 +120,9 @@ JourneyMasterOther = nil
     Check 'first session entries' $sessions[0].Entries.Count 3
     True 'earlier session finished' (Test-SessionFinished $sessions[0] $false ($T + 3 * 3600) $true)
     True 'latest session running' (-not (Test-SessionFinished $sessions[1] $true ($T + 3 * 3600 + 60) $true))
-    True 'latest session idle 31 minutes: finished' (Test-SessionFinished $sessions[1] $true ($T + 3 * 3600 + 1860) $true)
+    True 'latest session, game running, record 31 minutes old: not finished (the player may still be playing)' (-not (Test-SessionFinished $sessions[1] $true ($T + 3 * 3600 + 1860) $true))
+    True 'latest session, game running, record 5 hours old: still not finished' (-not (Test-SessionFinished $sessions[1] $true ($T + 8 * 3600) $true))
+    True 'latest session idle 31 minutes, game closed: finished' (Test-SessionFinished $sessions[1] $true ($T + 3 * 3600 + 1860) $false)
     $logoutSession = [pscustomobject]@{ S = 3; Entries = @(@{ k = 'login'; t = $T }, @{ k = 'logout'; t = $T + 10 }); First = $T; Last = $T + 10 }
     True 'logout with the game closed: waits 30 minutes for a login' (-not (Test-SessionFinished $logoutSession $true ($T + 20) $false))
     True 'logout with the game running (a reload): not finished' (-not (Test-SessionFinished $logoutSession $true ($T + 20) $true))
@@ -455,6 +457,14 @@ JourneyMasterOther = nil
     $out = & $run ($T + 9100) 'yes' @('-Export')
     True 'export written on request' (Test-Path (Join-Path $charDir 'journal.md'))
     Check 'export calls no AI' @(Get-ChildItem $calls).Count $before
+
+    # Entries that arrive for a session already summarised are reported, not silently left out.
+    $char.entries = @($session1 + $session2 + $long + @(@{ i = 54; s = 4; t = $T + 9000; k = 'login'; z = 'Elwynn Forest' },
+        @{ i = 55; s = 3; t = $T + 9200; k = 'note'; text = 'late'; z = 'Elwynn Forest' }))
+    $char.seq = 55
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    $out = & $run ($T + 9300) 'yes'
+    True 'late entries for a summarised session reported' ($out -match '1 entries arrived after session 3 was summarised')
 } finally {
     Remove-Item Env:FAKE_CLAUDE_LOG -ErrorAction SilentlyContinue
     Remove-Item Env:FAKE_CLAUDE_INVENT -ErrorAction SilentlyContinue
