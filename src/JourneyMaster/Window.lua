@@ -139,11 +139,12 @@ local function showFooter()
     local item = currentItem()
     local finish = tab ~= "settings" and isCurrent(item)
     local shots = tab ~= "settings" and hasShots(item)
+    local edit = tab ~= "settings" and item ~= nil
     local anchor = footer.reload
-    footer.finish:SetShown(finish)
-    if finish then footer.finish:SetPoint("RIGHT", anchor, "LEFT", -6, 0) anchor = footer.finish end
-    footer.shots:SetShown(shots)
-    if shots then footer.shots:SetPoint("RIGHT", anchor, "LEFT", -6, 0) anchor = footer.shots end
+    for _, b in ipairs({ { footer.finish, finish }, { footer.shots, shots }, { footer.delete, edit }, { footer.rename, edit } }) do
+        b[1]:SetShown(b[2])
+        if b[2] then b[1]:SetPoint("RIGHT", anchor, "LEFT", -6, 0) anchor = b[1] end
+    end
     footer.text:SetPoint("RIGHT", anchor, "LEFT", -10, 0)
 end
 
@@ -165,6 +166,70 @@ local function finishSession()
     Window.Refresh()
 end
 Window.FinishSession = finishSession
+
+-- Rename and Delete: a popup each (the game's StaticPopup), then a signal to the app (Signal.lua). The popup's data is
+-- the session number, so a change of selection while it is open does not change which session it acts on.
+local function popupEditBox(self)
+    return self.editBox or self.EditBox or (self.GetEditBox and self:GetEditBox())
+end
+
+local function renameSession(s, text)
+    local ok, why = ns.Signal.RenameSession(s, text)
+    if not ok then ns.Say(why) end
+    Window.Refresh()
+end
+Window.RenameSession = renameSession
+
+local function deleteSession(s)
+    local ok, why = ns.Signal.DeleteSession(s)
+    if not ok then ns.Say(why) return end
+    if selected == s then selected = nil end
+    ns.Say("session deleted. The app on your PC keeps it in the character's deleted folder, from where it can be restored.")
+    Window.Refresh()
+end
+Window.DeleteSession = deleteSession
+
+local function askRename()
+    local item = currentItem()
+    if not item or not StaticPopup_Show then return end
+    StaticPopupDialogs.JOURNEYMASTER_RENAME = StaticPopupDialogs.JOURNEYMASTER_RENAME or {
+        text = "JourneyMaster: a new title for this session.",
+        button1 = "Rename", button2 = "Cancel",
+        hasEditBox = 1, maxLetters = Core.TITLE_MAX, editBoxWidth = 300,
+        OnShow = function(self, data)
+            local box = popupEditBox(self)
+            if box then box:SetText(data and data.title or "") box:HighlightText() box:SetFocus() end
+        end,
+        OnAccept = function(self, data)
+            local box = popupEditBox(self)
+            if box and data then renameSession(data.s, box:GetText()) end
+        end,
+        EditBoxOnEnterPressed = function(box)
+            local popup = box:GetParent()
+            local data = popup and popup.data
+            if data then renameSession(data.s, box:GetText()) end
+            if popup then popup:Hide() end
+        end,
+        EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
+        timeout = 0, whileDead = true, hideOnEscape = true,
+    }
+    local renameable = item.state ~= "pending" or item.title ~= "Not summarised yet"
+    StaticPopup_Show("JOURNEYMASTER_RENAME", nil, nil, { s = item.s, title = renameable and item.title or "" })
+end
+Window.AskRename = askRename
+
+local function askDelete()
+    local item = currentItem()
+    if not item or not StaticPopup_Show then return end
+    StaticPopupDialogs.JOURNEYMASTER_DELETE = StaticPopupDialogs.JOURNEYMASTER_DELETE or {
+        text = "JourneyMaster: delete \"%s\"?\n\nThe app on your PC moves its summary, record, screenshots and entries to the character's deleted folder, from where they can be restored.",
+        button1 = "Delete", button2 = "Cancel",
+        OnAccept = function(_, data) if data then deleteSession(data.s) end end,
+        timeout = 0, whileDead = true, hideOnEscape = true, showAlert = 1,
+    }
+    StaticPopup_Show("JOURNEYMASTER_DELETE", tostring(item.title or "?"), nil, { s = item.s })
+end
+Window.AskDelete = askDelete
 
 -- Settings ---------------------------------------------------------------------------------------------------------
 
@@ -395,7 +460,8 @@ local function create()
     footer:SetPoint("BOTTOMRIGHT", -EDGE, EDGE)
     footer:SetHeight(FOOT_H)
     UI.Box(footer, nil, C.edge, 2, "T")
-    footer.reload = UI.FlatButton(footer, "Reload for new summaries", "GameFontNormalSmall", C.button, C.buttonEdge, C.gold, 12, 20)
+    -- "Reload", not the mock-up's "Reload for new summaries": with Rename and Delete the foot has no room for it.
+    footer.reload = UI.FlatButton(footer, "Reload", "GameFontNormalSmall", C.button, C.buttonEdge, C.gold, 12, 20)
     footer.reload:SetScript("OnClick", function() ReloadUI() end)
     footer.reload:SetPoint("RIGHT", -10, -1)
     UI.Tooltip(footer.reload, "Reload the interface",
@@ -410,6 +476,16 @@ local function create()
     footer.finish:Hide()
     UI.Tooltip(footer.finish, "Finish this session",
         "Ends the session now, so the app can summarise it after a reload, without waiting for you to close the game. Whatever you do next starts a new session. Also /jm end.")
+    footer.rename = UI.FlatButton(footer, "Rename", "GameFontNormalSmall", C.raised, C.edge, C.soft, 10, 20)
+    footer.rename:SetScript("OnClick", askRename)
+    footer.rename:Hide()
+    UI.Tooltip(footer.rename, "Rename this session",
+        "Gives the session your own title. The app on your PC writes it into the session's file, or uses it when it summarises the session.")
+    footer.delete = UI.FlatButton(footer, "Delete", "GameFontNormalSmall", C.raised, C.edge, C.soft, 10, 20)
+    footer.delete:SetScript("OnClick", askDelete)
+    footer.delete:Hide()
+    UI.Tooltip(footer.delete, "Delete this session",
+        "Removes the session from the journal, after you confirm. The app on your PC moves its summary, record, screenshots and entries to the character's deleted folder, from where they can be restored.")
     footer.text = footer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     footer.text:SetPoint("LEFT", 10, -1)
     footer.text:SetPoint("RIGHT", footer.reload, "LEFT", -10, 0)

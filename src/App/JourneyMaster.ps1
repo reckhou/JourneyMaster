@@ -39,6 +39,8 @@ param(
     [switch]$Watch,
     [int]$PollSeconds = 15,
     [switch]$Export,           # only write journal.md for every character, then stop
+    [long]$Restore = 0,        # only put deleted session <n> back (of -Character, when more than one has it), then stop
+    [string]$Character,        # the character key ("Name-Realm") for -Restore
     [switch]$NoOverview,
     [switch]$NoExplorer,
     [long]$SignalsFrom = -1,   # for tests: in a single run, also act on chat log signals from this byte on       # do not open File Explorer for the game's "Open screenshots on PC" button (for tests)
@@ -76,6 +78,15 @@ function Test-GameRunning {
 # State ------------------------------------------------------------------------------------------------------------------
 # Characters: key -> LastSeq (newest entry stored), Name, Realm, Race, Class, Faction, Level, Folder, and Sessions
 # (session number -> File, Title, First, Last, Zones, LevelFrom, LevelTo, Ungrounded). Revision: the snapshot's.
+# The player's changes in the game, each keyed by session number: Titles (own titles), Deleted (time of the delete),
+# SeenTitles and SeenDeleted (time of the newest rename or delete handled, so neither is applied twice).
+$StateMaps = 'Sessions', 'Titles', 'Deleted', 'SeenTitles', 'SeenDeleted'
+
+function New-CharState($key) {
+    $c = @{ LastSeq = 0; Folder = (Get-SafeName $key) }
+    foreach ($m in $StateMaps) { $c[$m] = @{} }
+    $c
+}
 
 function Read-State {
     $s = @{ Revision = 0; Characters = @{} }
@@ -83,10 +94,12 @@ function Read-State {
         $j = (Read-FileText $StateFile) | ConvertFrom-Json
         $s.Revision = [long]$j.Revision
         foreach ($p in $j.Characters.PSObject.Properties) {
-            $c = @{ Sessions = @{} }
-            foreach ($q in $p.Value.PSObject.Properties) { if ($q.Name -ne 'Sessions') { $c[$q.Name] = $q.Value } }
-            if ($p.Value.PSObject.Properties['Sessions']) {
-                foreach ($q in $p.Value.Sessions.PSObject.Properties) { $c.Sessions[$q.Name] = $q.Value }
+            $c = @{}
+            foreach ($m in $StateMaps) { $c[$m] = @{} }
+            foreach ($q in $p.Value.PSObject.Properties) {
+                if ($StateMaps -contains $q.Name) {
+                    if ($q.Value) { foreach ($r in $q.Value.PSObject.Properties) { $c[$q.Name][$r.Name] = $r.Value } }
+                } else { $c[$q.Name] = $q.Value }
             }
             $s.Characters[$p.Name] = $c
         }
@@ -128,6 +141,93 @@ function Open-SessionShots($key, $c, [long]$Number) {
     if (-not $NoExplorer) { Start-Process -FilePath 'explorer.exe' -ArgumentList $explorerArgs }
 }
 
+# Renaming and deleting sessions -------------------------------------------------------------------------------------------
+# Changes made in the game arrive as signals (TITLE, DELETE) and again in the saved file; the time of each change
+# (SeenTitles, SeenDeleted) keeps it from being applied twice. A deleted session's files go to
+# <character>\deleted\session-<n>\, in the same layout (events\, sessions\, records\, screenshots\) plus session.json,
+# its entry in the state, so -Restore can put everything back. The overview is left alone until the next summary.
+
+function Get-DeletedDir($c, [long]$Number) { Join-Path (Join-Path (Get-CharDir $c) 'deleted') "session-$Number" }
+
+function Move-IntoFolder([string]$Path, [string]$Folder) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    if (-not (Test-Path -LiteralPath $Folder)) { New-Item -ItemType Directory -Force -Path $Folder | Out-Null }
+    Move-Item -LiteralPath $Path -Destination (Join-Path $Folder (Split-Path -Leaf $Path)) -Force
+}
+
+# Moves a session's summary, record, screenshots and entries to its deleted folder. Returns $true when it did.
+function Remove-Session($key, $c, [long]$Number, [long]$T) {
+    $k = "$Number"
+    if ([long]$c.SeenDeleted[$k] -ge $T) { return $false }
+    $c.SeenDeleted[$k] = $T
+    $charDir = Get-CharDir $c
+    $dir = Get-DeletedDir $c $Number
+    $moved = @(Remove-SessionEvents (Join-Path $charDir 'events') $Number)
+    if ($moved.Count -gt 0) { [void](Add-EventEntries (Join-Path $dir 'events') $moved) }
+    $known = $c.Sessions[$k]
+    if ($known) {
+        $md = Join-Path (Join-Path $charDir 'sessions') $known.File
+        if (Test-Path -LiteralPath $md) {
+            foreach ($shot in @(Get-SessionShots (Read-FileText $md))) { Move-IntoFolder (Join-Path (Join-Path $charDir 'screenshots') $shot.Name) (Join-Path $dir 'screenshots') }
+            Move-IntoFolder $md (Join-Path $dir 'sessions')
+        }
+        Move-IntoFolder (Join-Path (Join-Path $charDir 'records') ([IO.Path]::ChangeExtension($known.File, '.txt'))) (Join-Path $dir 'records')
+        Write-FileAtomic (Join-Path $dir 'session.json') (ConvertTo-Json -InputObject $known -Depth 5)
+        $c.Sessions.Remove($k)
+    }
+    $c.Deleted[$k] = $T
+    Save-State
+    Write-Export $key
+    Say "$key`: session $Number deleted in the game; its files are in $dir" 'Cyan'
+    $true
+}
+
+# Gives a session the player's own title: written into its file when summarised, else used when it is. Returns $true
+# when it changed anything.
+function Rename-Session($key, $c, [long]$Number, [long]$T, [string]$Title) {
+    $k = "$Number"
+    $Title = ($Title -replace '[\r\n|]+', ' ').Trim()
+    if (-not $Title -or [long]$c.SeenTitles[$k] -ge $T) { return $false }
+    $c.SeenTitles[$k] = $T
+    $c.Titles[$k] = $Title
+    $known = $c.Sessions[$k]
+    if ($known) {
+        $md = Join-Path (Join-Path (Get-CharDir $c) 'sessions') $known.File
+        if (Test-Path -LiteralPath $md) { Write-FileAtomic $md (Set-SessionTitle (Read-FileText $md) $Title) }
+        $known.Title = $Title
+    }
+    Save-State
+    Write-Export $key
+    Say "$key`: session $Number renamed in the game to '$Title'" 'Cyan'
+    $true
+}
+
+# Puts a deleted session back (-Restore): its entries, summary, record and screenshots.
+function Restore-Session($key, $c, [long]$Number) {
+    $k = "$Number"
+    $dir = Get-DeletedDir $c $Number
+    if (-not (Test-Path -LiteralPath $dir)) { Say "$key`: no deleted session $Number in $(Split-Path -Parent $dir)" 'Yellow'; return $false }
+    $charDir = Get-CharDir $c
+    $json = Join-Path $dir 'session.json'
+    $known = if (Test-Path -LiteralPath $json) { (Read-FileText $json) | ConvertFrom-Json } else { $null }
+    if ($known -and (Test-Path -LiteralPath (Join-Path (Join-Path $charDir 'sessions') $known.File))) {
+        Say "$key`: sessions\$($known.File) exists already; move it away first" 'Yellow'; return $false
+    }
+    $entries = @(Read-EventEntries (Join-Path $dir 'events'))
+    if ($entries.Count -gt 0) { [void](Add-EventEntries (Join-Path $charDir 'events') $entries) }
+    foreach ($sub in 'sessions', 'records', 'screenshots') {
+        $from = Join-Path $dir $sub
+        if (Test-Path -LiteralPath $from) { foreach ($f in @(Get-ChildItem -LiteralPath $from -File)) { Move-IntoFolder $f.FullName (Join-Path $charDir $sub) } }
+    }
+    if ($known) { $c.Sessions[$k] = $known }
+    $c.Deleted.Remove($k)
+    Remove-Item -LiteralPath $dir -Recurse -Force
+    Save-State
+    Write-Export $key
+    Say "$key`: session $Number restored$(if ($known) { " as sessions\$($known.File)" } else { ' (not summarised yet)' })" 'Green'
+    $true
+}
+
 # Step 1: new entries into the event files -------------------------------------------------------------------------------
 
 function Import-SavedVariables([string]$Path) {
@@ -136,9 +236,7 @@ function Import-SavedVariables([string]$Path) {
     if (-not $db -or -not $db['characters']) { Dbg 'no characters in the saved file yet'; return }
     foreach ($key in @($db['characters'].Keys)) {
         $sv = $db['characters'][$key]
-        if (-not $State.Characters.ContainsKey($key)) {
-            $State.Characters[$key] = @{ LastSeq = 0; Folder = (Get-SafeName $key); Sessions = @{} }
-        }
+        if (-not $State.Characters.ContainsKey($key)) { $State.Characters[$key] = New-CharState $key }
         $c = $State.Characters[$key]
         foreach ($field in 'name', 'realm', 'race', 'class', 'faction', 'level', 'sex') {
             if ($null -ne $sv[$field]) { $c[(Get-Culture).TextInfo.ToTitleCase($field)] = $sv[$field] }
@@ -146,10 +244,22 @@ function Import-SavedVariables([string]$Path) {
         $entries = @($sv['entries'])
         $new = @($entries | Where-Object { $_ -is [Collections.IDictionary] -and [long]$_['i'] -gt [long]$c.LastSeq })
         if ($new.Count -gt 0) {
-            $n = Add-EventEntries (Join-Path (Get-CharDir $c) 'events') $new
+            # Entries of a deleted session go straight to its folder under deleted\.
+            $kept = @($new | Where-Object { -not $c.Deleted.ContainsKey("$([long]$_['s'])") })
+            foreach ($g in @($new | Where-Object { $c.Deleted.ContainsKey("$([long]$_['s'])") } | Group-Object { [long]$_['s'] })) {
+                [void](Add-EventEntries (Join-Path (Get-DeletedDir $c ([long]$g.Name)) 'events') @($g.Group))
+            }
+            $n = if ($kept.Count -gt 0) { Add-EventEntries (Join-Path (Get-CharDir $c) 'events') $kept } else { 0 }
             $c.LastSeq = [long](($new | ForEach-Object { [long]$_['i'] } | Measure-Object -Maximum).Maximum)
-            Say "$key`: $n new entries stored"
+            Say "$key`: $n new entries stored$(if ($kept.Count -lt $new.Count) { ", $($new.Count - $kept.Count) of deleted sessions put with them" })"
             $script:Changed = $true
+        }
+        # Renames and deletes made in the game, in case their signals were lost; each is applied only once.
+        foreach ($p in (Get-SessionMap $sv['deleted']).GetEnumerator()) {
+            if (Remove-Session $key $c ([long]$p.Key) ([long]$p.Value)) { $script:Changed = $true }
+        }
+        foreach ($p in (Get-SessionMap $sv['titles']).GetEnumerator()) {
+            if ($p.Value -is [Collections.IDictionary] -and (Rename-Session $key $c ([long]$p.Key) ([long]$p.Value['t']) ([string]$p.Value['text']))) { $script:Changed = $true }
         }
         $settings = $sv['settings']
         # The AI choice in the saved file. The file is only as new as the last /reload or logout, and a choice made since
@@ -210,6 +320,12 @@ function Invoke-Signal($Sig) {
             $field, $value = ([string]$Sig.Arg) -split '=', 2
             if (Set-AISetting $c $field $value) { Save-State; Say "$($Sig.Key)`: AI $field set to $value in the game; used from the next summary" 'Cyan' }
             elseif (@('model', 'effort') -notcontains $field -or ($AIModels + $AIEfforts) -notcontains $value) { Say "$($Sig.Key)`: unknown AI setting $($Sig.Arg)" 'Yellow' }
+        }
+        { $_ -in 'TITLE', 'DELETE' } {
+            $ch = ConvertFrom-SessionChange $Sig.Arg
+            if (-not $ch -or (($Sig.Kind -eq 'TITLE') -ne ($null -ne $ch.Title))) { Say "$($Sig.Key)`: a $($Sig.Kind) signal the app cannot read: $($Sig.Arg)" 'Yellow'; return }
+            $done = if ($Sig.Kind -eq 'TITLE') { Rename-Session $Sig.Key $c $ch.S $ch.T $ch.Title } else { Remove-Session $Sig.Key $c $ch.S $ch.T }
+            if ($done) { Publish-Snapshot }
         }
         'END' { Say "$($Sig.Key)`: session $($Sig.S) finished in the game; it is summarised once the game writes the record (at /reload or logout)" 'Cyan' }
         default { Dbg "unknown signal $($Sig.Kind)" }
@@ -336,6 +452,7 @@ function Invoke-SessionSummary($key, $c, $Session) {
         $meta += $reply.Meta
     }
     if (-not $title) { $title = 'A session on ' + (ConvertFrom-Epoch $Session.First).ToString('d MMMM yyyy') }
+    if ($c.Titles.ContainsKey("$($Session.S)")) { $title = [string]$c.Titles["$($Session.S)"] } # renamed in the game before its summary
     $shots = Save-Screenshots $c $Session
     $sessionsDir = Join-Path (Get-CharDir $c) 'sessions'
     if (-not (Test-Path -LiteralPath $sessionsDir)) { New-Item -ItemType Directory -Force -Path $sessionsDir | Out-Null }
@@ -424,10 +541,22 @@ function Update-Overview($key) {
     Say "$key`: overview updated" 'Green'
 }
 
+# The names and write times of a character's session files and overview, to notice edits made on the PC.
+function Get-FilesStamp($c) {
+    $files = @(Get-ChildItem -LiteralPath (Join-Path (Get-CharDir $c) 'sessions') -Filter '*.md' -File -ErrorAction SilentlyContinue)
+    $files += @(Get-Item -LiteralPath (Join-Path (Get-CharDir $c) 'overview.md') -ErrorAction SilentlyContinue)
+    (@($files | Sort-Object Name | ForEach-Object { "$($_.Name):$($_.LastWriteTimeUtc.Ticks)" }) -join '|')
+}
+
 function Write-Export($key) {
     $c = $State.Characters[$key]
     $docs = @(Get-SessionDocs $c)
-    if ($docs.Count -eq 0) { return }
+    if ($docs.Count -eq 0) {
+        # Every session deleted: the export, which the app writes, goes too.
+        $old = Join-Path (Get-CharDir $c) 'journal.md'
+        if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old }
+        return
+    }
     $overviewPath = Join-Path (Get-CharDir $c) 'overview.md'
     $overview = if (Test-Path -LiteralPath $overviewPath) { (Read-SessionMarkdown (Read-FileText $overviewPath)).Body } else { '' }
     Write-FileAtomic (Join-Path (Get-CharDir $c) 'journal.md') (New-JournalExport ([string]$c.Name) $overview $docs)
@@ -480,7 +609,8 @@ function Publish-Snapshot {
                 File = $rel; Text = $(if ($full) { Get-SnapshotText $d.Body } else { $null })
                 Shots = $(if ($full) { @(Get-Thumbnails $c $d.Body) } else { @() }) }
         }
-        [pscustomobject]@{ Key = $key; Confirmed = [long]$c.LastSeq; Sessions = @($sessions) }
+        [pscustomobject]@{ Key = $key; Confirmed = [long]$c.LastSeq; Sessions = @($sessions)
+            Deleted = @($c.Deleted.Keys | ForEach-Object { [long]$_ }); SeenTitle = $c.SeenTitles; SeenDelete = $c.SeenDeleted }
     }
     Remove-UnusedThumbnails
     $State.Revision = [long]$State.Revision + 1
@@ -499,6 +629,15 @@ if ($Export) {
     foreach ($key in @($State.Characters.Keys)) { Write-Export $key; Say "$key`: $(Join-Path (Get-CharDir $State.Characters[$key]) 'journal.md')" 'Green' }
     return
 }
+if ($Restore -gt 0) {
+    $keys = @($State.Characters.Keys | Where-Object { (-not $Character -or $_ -eq $Character) -and (Test-Path -LiteralPath (Get-DeletedDir $State.Characters[$_] $Restore)) })
+    if ($keys.Count -ne 1) {
+        Say $(if ($keys.Count -eq 0) { "no deleted session $Restore$(if ($Character) { " for $Character" })" } else { "more than one character has a deleted session $Restore ($($keys -join ', ')): give -Character" }) 'Yellow'
+        return
+    }
+    if (Restore-Session $keys[0] $State.Characters[$keys[0]] $Restore) { Publish-Snapshot }
+    return
+}
 if (-not $ClaudePath) { $ClaudePath = (Get-Command claude -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
 
 function Invoke-Once {
@@ -513,6 +652,17 @@ function Invoke-Once {
         Use-AISettings $State.Characters[$key]
         if (-not $NoOverview) { Update-Overview $key }
         Write-Export $key
+    }
+    # Session files or the overview edited (or deleted) on the PC: the export and the game's snapshot follow.
+    foreach ($key in @($State.Characters.Keys)) {
+        $c = $State.Characters[$key]
+        $stamp = Get-FilesStamp $c
+        if ($c.ContainsKey('FilesStamp') -and [string]$c.FilesStamp -ne $stamp -and $updated -notcontains $key) {
+            Say "$key`: session files changed on the PC; the journal export and the game's snapshot follow" 'Cyan'
+            Write-Export $key
+            $script:Changed = $true
+        }
+        $c.FilesStamp = $stamp
     }
     $snap = Join-Path $AddOnDir 'JournalSnapshot.lua'
     $stale = (Test-Path -LiteralPath $snap) -and -not ((Read-FileText $snap) -match 'revision = [1-9]')

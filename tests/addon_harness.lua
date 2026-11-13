@@ -355,6 +355,75 @@ tick(5)
 ns.Command("note after another reload")
 eq(c.session, sNow + 3, "a session the app has not summarised continues after a login")
 
+-- Renaming and deleting sessions --------------------------------------------------------------------------------------------
+local KEY = "Baldrake Cavendell-LivingFlame"
+local snapChar = ns.journalSnapshot.characters[KEY]
+local function item(s)
+    ns.Window.Refresh()
+    for _, it in ipairs(ns.Window.State().items) do if it.s == s then return it end end
+end
+local function signals()
+    W.RunSignalTickers()
+    local out = {}
+    for _, line in ipairs(W.system) do if line:find("^JMS:") then out[#out + 1] = line end end
+    W.system = {}
+    return out
+end
+W.system = {}
+local sCur = c.session
+ns.Window.Select(sCur)
+ns.Window.AskRename()
+eq(W.popup, "JOURNEYMASTER_RENAME", "Rename asks for the title")
+StaticPopupDialogs.JOURNEYMASTER_RENAME.OnAccept({ editBox = { GetText = function() return "  A |cffff0000night|r in Goldshire: part 1 " end } }, { s = sCur })
+eq(item(sCur).title, "A night in Goldshire: part 1", "a session not summarised yet shows its new title, cleaned")
+local sig = signals()
+eq(#sig, 1, "rename signalled")
+local hex = sig[1]:match(":TITLE:" .. sCur .. "=" .. W.now .. "=(%x+):" .. KEY:gsub("%-", "%%-") .. "$")
+check(hex, "rename signal: session, time, title in hex: " .. tostring(sig[1]))
+eq(ns.Core.Unhex(hex or ""), "A night in Goldshire: part 1", "the title survives the signal, colon included")
+eq(ns.Signal.RenameSession(sCur, " |r "), false, "an empty title is refused")
+check(#ns.Core.CleanTitle(("x"):rep(200)) <= ns.Core.TITLE_MAX, "titles are cut to the most bytes allowed")
+tick(5)
+ns.Window.RenameSession(s1, "Into the dark wood")
+signals()
+eq(item(s1).title, "Into the dark wood", "a summarised session shows its new title before the app handles it")
+local renamedAt = W.now
+-- The app handles it: its snapshot has the new title and says so; the game drops its own copy at the next login.
+snapChar.sessions[1].title = "Into the dark wood"
+snapChar.seenTitle = { [s1] = renamedAt }
+fire("PLAYER_LOGIN")
+eq(c.titles[s1], nil, "a rename the app has handled is dropped from the saved file")
+check(c.titles[sCur] ~= nil, "a rename of a session not summarised yet is kept")
+snapChar.sessions[1].title = "Edited on the PC"
+eq(item(s1).title, "Edited on the PC", "after that, the snapshot's title wins (the player may edit the file on the PC)")
+-- Delete: asks first, then hides the session at once and signals the app.
+tick(5)
+ns.Window.Select(s1)
+ns.Window.AskDelete()
+eq(W.popup, "JOURNEYMASTER_DELETE", "Delete asks first")
+StaticPopupDialogs.JOURNEYMASTER_DELETE.OnAccept(nil, { s = s1 })
+eq(item(s1), nil, "a deleted session leaves the list at once")
+sig = signals()
+check(sig[1] and sig[1]:find(":DELETE:" .. s1 .. "=" .. W.now .. ":", 1, true), "delete signalled: " .. tostring(sig[1]))
+local deletedAt = W.now
+-- Deleting the session in progress: play goes on in a new session.
+tick(5)
+ns.Window.DeleteSession(c.session)
+signals()
+eq(item(sCur), nil, "the session in progress can be deleted too")
+ns.Command("note after deleting")
+eq(c.session, sCur + 1, "the next entry after deleting the session in progress starts a new one")
+-- The app handles the delete; the snapshot then keeps the session hidden, and a restore on the PC shows it again.
+snapChar.seenDelete = { [s1] = deletedAt }
+snapChar.deleted = { s1 }
+fire("PLAYER_LOGIN")
+eq(c.deleted[s1], nil, "a delete the app has handled is dropped from the saved file")
+check(c.deleted[sCur] ~= nil, "a delete the app has not handled yet is kept")
+eq(item(s1), nil, "the snapshot keeps the deleted session hidden")
+snapChar.deleted = {}
+check(item(s1) ~= nil, "a session restored on the PC is listed again")
+c.deleted, c.titles, snapChar.seenDelete, snapChar.seenTitle = nil, nil, nil, nil
+
 -- Reload prompt ------------------------------------------------------------------------------------------------------------
 c.settings.reloadPrompt = true
 c.sinceReload = W.now - 3 * 3600

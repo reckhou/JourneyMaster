@@ -104,8 +104,14 @@ function ns.OnLogin()
     local c = Rec.Start(JourneyMasterDB)
     -- If the app has already summarised the session in progress (the snapshot lists it), whatever comes next must not
     -- join it, or it would be in no summary: the next entry starts a new session.
-    if c and (c.session or 0) > 0 and ns.Journal.IsSummarised(Core.CharKey(c.name, c.realm), c.session) then
-        c.endSession = true
+    -- Likewise for a session deleted. Renames and deletions the app has handled are then dropped from the saved file.
+    if c then
+        local key = Core.CharKey(c.name, c.realm)
+        local snapChar = ns.Journal.SnapChar(key)
+        if (c.session or 0) > 0 and (ns.Journal.IsSummarised(key, c.session) or ns.Journal.IsDeleted(c, snapChar, c.session)) then
+            c.endSession = true
+        end
+        Core.PruneChanges(c, snapChar)
     end
     ns.Minimap.Create()
     if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(300, Rec.Guard("the reload prompt", maybeOfferReload)) end

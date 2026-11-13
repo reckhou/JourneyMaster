@@ -29,14 +29,32 @@ function Journal.IsSummarised(key, s)
     return false
 end
 
--- The sessions of a character, newest first.
+-- Whether session s is deleted: by a change in the game the app has not handled yet, else by the snapshot.
+function Journal.IsDeleted(c, snapChar, s)
+    local t = c and c.deleted and c.deleted[s]
+    if t and (snapChar and snapChar.seenDelete and snapChar.seenDelete[s] or 0) < t then return true end
+    for _, d in ipairs(snapChar and snapChar.deleted or {}) do if d == s then return true end end
+    return false
+end
+
+-- A session's title: a rename in the game the app has not handled yet (or of a session not summarised yet), else
+-- the title given.
+function Journal.Title(c, snapChar, s, title, summarised)
+    local o = c and c.titles and c.titles[s]
+    if o and (not summarised or (snapChar and snapChar.seenTitle and snapChar.seenTitle[s] or 0) < (o.t or 0)) then
+        return o.text
+    end
+    return title
+end
+
+-- The sessions of a character, newest first, without the deleted ones.
 function Journal.List(c, key)
     local byS = {}
     local out = {}
     local snapChar = Journal.SnapChar(key)
     for _, s in ipairs(snapChar and snapChar.sessions or {}) do
         local item = {
-            s = s.s, title = s.title, first = s.first, last = s.last, zones = s.zones or {},
+            s = s.s, title = Journal.Title(c, snapChar, s.s, s.title, true), first = s.first, last = s.last, zones = s.zones or {},
             levelFrom = s.levelFrom, levelTo = s.levelTo, text = s.text, file = s.file, shots = s.shots,
             state = s.text and "full" or "brief", entries = 0,
         }
@@ -49,15 +67,19 @@ function Journal.List(c, key)
             item.entries = sess.count
         else
             item = {
-                s = sess.s, title = "Not summarised yet", first = sess.first, last = sess.last, zones = sess.zones,
+                s = sess.s, title = Journal.Title(c, snapChar, sess.s, "Not summarised yet", false), first = sess.first, last = sess.last, zones = sess.zones,
                 levelFrom = sess.levelFrom, levelTo = sess.levelTo, state = "pending", entries = sess.count,
             }
             byS[sess.s] = item
             out[#out + 1] = item
         end
     end
-    table.sort(out, function(a, b) return (a.s or 0) > (b.s or 0) end)
-    return out
+    local kept = {}
+    for _, item in ipairs(out) do
+        if not Journal.IsDeleted(c, snapChar, item.s) then kept[#kept + 1] = item end
+    end
+    table.sort(kept, function(a, b) return (a.s or 0) > (b.s or 0) end)
+    return kept
 end
 
 -- "12 Nov 2026" of the newest summary in the snapshot (any character), or nil.

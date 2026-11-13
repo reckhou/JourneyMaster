@@ -544,6 +544,70 @@ function Core.PadLine(id, n)
     return head .. ("."):rep(Core.PAD_LEN - #head)
 end
 
+-- Renaming and deleting sessions -----------------------------------------------------------------------------------
+-- The add-on keeps each change (c.titles[s] = { text, t }; c.deleted[s] = t, t the time of the change) and sends it to
+-- the app as a signal. The saved file carries it too, in case the signal is lost. The app lists the changes it has
+-- handled in the snapshot (seenTitle, seenDelete: session -> t), so the game then shows the snapshot's version again.
+
+Core.TITLE_MAX = 80 -- bytes
+
+-- A title as typed: no escape codes or bars (the chat log cuts a line at "|"), one line, at most TITLE_MAX bytes.
+-- nil when nothing is left.
+function Core.CleanTitle(text)
+    local s = Core.CleanText(text)
+    if not s then return nil end
+    s = s:gsub("|", ""):gsub("%c", "")
+    s = s:gsub("^%s+", ""):gsub("%s+$", "")
+    if #s > Core.TITLE_MAX then
+        local cut = Core.TITLE_MAX
+        while cut > 0 do
+            local b = s:byte(cut + 1)
+            if not b or b < 0x80 or b >= 0xC0 then break end
+            cut = cut - 1
+        end
+        s = s:sub(1, cut):gsub("%s+$", "")
+    end
+    return s ~= "" and s or nil
+end
+
+function Core.Hex(s)
+    return (tostring(s):gsub(".", function(ch) return ("%02x"):format(ch:byte()) end))
+end
+
+function Core.Unhex(h)
+    return (tostring(h):gsub("%x%x", function(x) return string.char(tonumber(x, 16)) end))
+end
+
+-- Records a rename of session s at time now. Returns the signal's arg: "<s>=<t>=<title in hex>".
+function Core.RenameSession(c, s, title, now)
+    c.titles = c.titles or {}
+    c.titles[s] = { text = title, t = now }
+    return ("%d=%d=%s"):format(s, now, Core.Hex(title))
+end
+
+-- Records the deletion of session s at time now; a session in progress is finished, so play goes on in a new one.
+-- Returns the signal's arg: "<s>=<t>".
+function Core.DeleteSession(c, s, now)
+    c.deleted = c.deleted or {}
+    c.deleted[s] = now
+    if s == c.session then c.endSession = true end
+    return ("%d=%d"):format(s, now)
+end
+
+-- Drops the changes the snapshot says the app has handled (snapChar: the character's part of the snapshot, or nil).
+-- A rename of a session the snapshot does not list yet is kept: the game has no other place to show it.
+function Core.PruneChanges(c, snapChar)
+    if not snapChar then return end
+    local listed = {}
+    for _, sess in ipairs(snapChar.sessions or {}) do listed[sess.s] = true end
+    for s, t in pairs(c.deleted or {}) do
+        if (snapChar.seenDelete and snapChar.seenDelete[s] or 0) >= t then c.deleted[s] = nil end
+    end
+    for s, o in pairs(c.titles or {}) do
+        if listed[s] and (snapChar.seenTitle and snapChar.seenTitle[s] or 0) >= (o.t or 0) then c.titles[s] = nil end
+    end
+end
+
 -- The lines of one signal: the signal, then the padding.
 function Core.SignalLines(id, kind, arg, key)
     local lines = { Core.SignalLine(id, kind, arg, key) }

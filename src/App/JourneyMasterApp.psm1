@@ -120,6 +120,62 @@ function Read-EventEntries([string]$EventsDir) {
     @($out.ToArray() | Sort-Object { [long](Get-Field $_ 'i') })
 }
 
+# Removes the entries of session S from every event file in EventsDir (each file rewritten whole, or deleted when
+# empty). Returns the entries removed.
+function Remove-SessionEvents([string]$EventsDir, [long]$S) {
+    $removed = New-Object Collections.Generic.List[object]
+    if (-not (Test-Path -LiteralPath $EventsDir)) { return @() }
+    foreach ($file in @(Get-ChildItem -LiteralPath $EventsDir -Filter '*.jsonl')) {
+        $keep = New-Object Collections.Generic.List[string]
+        $hit = $false
+        foreach ($l in @((Read-FileText $file.FullName) -split "`n" | Where-Object { $_.Trim() -ne '' })) {
+            $e = $null
+            try { $e = $l | ConvertFrom-Json } catch { }
+            if ($e -and [long](Get-Field $e 's') -eq $S) { $removed.Add($e); $hit = $true } else { $keep.Add($l.TrimEnd("`r")) }
+        }
+        if (-not $hit) { continue }
+        if ($keep.Count -eq 0) { Remove-Item -LiteralPath $file.FullName } else { Write-FileAtomic $file.FullName (($keep -join "`n") + "`n") }
+    }
+    @($removed.ToArray())
+}
+
+# Renaming and deleting sessions in the game (see Signal.lua) ----------------------------------------------------------
+
+# A signal's or saved file's change: "<s>=<t>" (DELETE) or "<s>=<t>=<title as UTF-8 in hex>" (TITLE). Returns S, T and
+# Title ($null for a delete), or $null when it is not one.
+function ConvertFrom-SessionChange([string]$Arg) {
+    $m = [regex]::Match($Arg, '^(\d+)=(\d+)(?:=((?:[0-9a-fA-F]{2})*))?$')
+    if (-not $m.Success) { return $null }
+    $title = $null
+    if ($m.Groups[3].Success) {
+        $h = $m.Groups[3].Value
+        $bytes = New-Object byte[] ($h.Length / 2)
+        for ($i = 0; $i -lt $bytes.Length; $i++) { $bytes[$i] = [Convert]::ToByte($h.Substring($i * 2, 2), 16) }
+        $title = $Utf8.GetString($bytes)
+    }
+    [pscustomobject]@{ S = [long]$m.Groups[1].Value; T = [long]$m.Groups[2].Value; Title = $title }
+}
+
+# A table of the saved file keyed by session number (c.titles, c.deleted) as a Hashtable: session number -> value. The
+# reader turns a table keyed 1..n into an array.
+function Get-SessionMap($Value) {
+    $out = @{}
+    if ($Value -is [Collections.IDictionary]) {
+        foreach ($k in $Value.Keys) { if ("$k" -match '^\d+$') { $out[[long]"$k"] = $Value[$k] } }
+    } elseif ($Value -is [Array]) {
+        for ($i = 0; $i -lt $Value.Count; $i++) { if ($null -ne $Value[$i]) { $out[[long]($i + 1)] = $Value[$i] } }
+    }
+    $out
+}
+
+# A session file with its title (the first "# " heading) replaced, or added when it has none.
+function Set-SessionTitle([string]$Text, [string]$Title) {
+    $Title = ($Title -replace '[\r\n]+', ' ').Trim()
+    $m = [regex]::Match($Text, '^(\s*)#[ \t]+[^\r\n]*')
+    if ($m.Success) { return $Text.Substring(0, $m.Index) + $m.Groups[1].Value + "# $Title" + $Text.Substring($m.Index + $m.Length) }
+    "# $Title`n`n" + $Text
+}
+
 # Sessions ----------------------------------------------------------------------------------------------------------------
 
 # Groups entries into play sessions by their session number. Returns objects S, Entries, First, Last, oldest first.
@@ -857,7 +913,9 @@ function Get-SnapshotText([string]$Text, [int]$MaxBytes = 16000) {
 
 # JournalSnapshot.lua: Revision, Written, and Characters (Key, Confirmed, Sessions newest first: S, Title, First, Last,
 # Zones, LevelFrom, LevelTo, File, Text or $null for an older session listed by date and title only, and optional Shots:
-# Name, Thumb (the thumbnail's game path), W and H (the part of the thumbnail the picture fills)).
+# Name, Thumb (the thumbnail's game path), W and H (the part of the thumbnail the picture fills)). Optional per
+# character: Deleted (session numbers), SeenTitle and SeenDelete (session number -> time of the game's rename or
+# delete the app has handled).
 function New-JournalSnapshotLua($Model) {
     $out = New-Object Collections.Generic.List[string]
     $out.Add('-- JourneyMaster journal snapshot, written by the app. Read-only: edit the Markdown files on your PC.')
@@ -887,6 +945,14 @@ function New-JournalSnapshotLua($Model) {
             $out.Add('                { ' + ($fields -join ', ') + ' },')
         }
         $out.Add('            },')
+        $deleted = @(if ($c.PSObject.Properties['Deleted']) { $c.Deleted | Where-Object { $null -ne $_ } | Sort-Object { [long]$_ } })
+        if ($deleted.Count -gt 0) { $out.Add('            deleted = { ' + (($deleted | ForEach-Object { [long]$_ }) -join ', ') + ' },') }
+        foreach ($pair in @(@('SeenTitle', 'seenTitle'), @('SeenDelete', 'seenDelete'))) {
+            $map = if ($c.PSObject.Properties[$pair[0]]) { $c.($pair[0]) } else { $null }
+            if ($map -and $map.Count -gt 0) {
+                $out.Add("            $($pair[1]) = { " + ((@($map.Keys) | Sort-Object { [long]$_ } | ForEach-Object { "[$([long]$_)] = $([long]$map[$_])" }) -join ', ') + ' },')
+            }
+        }
         $out.Add('        },')
     }
     $out.Add('    },')
@@ -903,7 +969,8 @@ function Test-JournalSnapshotLua([string]$Lua) {
     $rest = $rest -replace '(?m)^--[^\n]*$', ''
     if ($rest -match '[^\sA-Za-z0-9_=,{}.\[\]]') { return 'unexpected text outside string values' }
     $allowed = 'local', '_', 'ns', 'journalSnapshot', 'schema', 'revision', 'written', 'characters', 'confirmed', 'sessions',
-        's', 'title', 'first', 'last', 'levelFrom', 'levelTo', 'zones', 'file', 'text', 'shots', 'name', 'thumb', 'w', 'h'
+        's', 'title', 'first', 'last', 'levelFrom', 'levelTo', 'zones', 'file', 'text', 'shots', 'name', 'thumb', 'w', 'h',
+        'deleted', 'seenTitle', 'seenDelete'
     foreach ($w in [regex]::Matches($rest, '[A-Za-z_]+')) { if ($allowed -cnotcontains $w.Value) { return "unexpected name $($w.Value)" } }
     ''
 }
@@ -1000,7 +1067,7 @@ function Invoke-ClaudeCli([string]$ClaudePath, [string[]]$Arguments, [string]$Wo
 }
 
 Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Test-Coverage, Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
-    Get-Field, Add-EventEntries, Read-EventEntries, Get-Sessions, Test-HasInstance, Test-SessionFinished, Get-SessionFacts,
+    Get-Field, Add-EventEntries, Read-EventEntries, Remove-SessionEvents, ConvertFrom-SessionChange, Get-SessionMap, Set-SessionTitle, Get-Sessions, Test-HasInstance, Test-SessionFinished, Get-SessionFacts,
     Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, ConvertFrom-SignalLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
     Format-Entry, Format-RecordLines, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
     ConvertFrom-SummaryReply, Test-Grounded, Get-SessionFileName, Format-SessionLine, Format-SessionMarkdown, Read-SessionMarkdown,

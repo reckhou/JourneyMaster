@@ -116,6 +116,26 @@ function Signal.SetAI(field, value)
     return Signal.Send("SET", field .. "=" .. value)
 end
 
+-- Renaming a session: kept in the saved file and shown at once, and sent to the app, which rewrites the title in the
+-- session's file (or uses it when it summarises the session). Returns false and the reason when the title is empty.
+function Signal.RenameSession(s, text)
+    local c = rec().Char()
+    if not c then return false, "no character loaded yet." end
+    local title = Core.CleanTitle(text)
+    if not title then return false, "a title needs at least one letter." end
+    Signal.Send("TITLE", Core.RenameSession(c, s, title, time()))
+    return true
+end
+
+-- Deleting a session: hidden at once, and sent to the app, which moves the session's summary, record, screenshots
+-- and entries to its deleted folder, from where they can be restored.
+function Signal.DeleteSession(s)
+    local c = rec().Char()
+    if not c then return false, "no character loaded yet." end
+    Signal.Send("DELETE", Core.DeleteSession(c, s, time()))
+    return true
+end
+
 -- Finishing the session (/jm end, or the window's Finish session button): an "end" entry closes it, the next entry
 -- starts a new one, and a signal tells the app. The app summarises the session once the game has written the record
 -- to disk, so the player is then offered a reload. Returns false and the reason when there is nothing to finish.
