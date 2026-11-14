@@ -334,7 +334,7 @@ local function buildAISettings(panel)
     note:SetPoint("TOPLEFT", x, y - 4)
     note:SetPoint("RIGHT", panel, "RIGHT", -8, 0)
     note:SetJustifyH("LEFT")
-    note:SetText("Default: Opus, low effort. Kept for this character.")
+    note:SetText("Default: Opus, high effort. Kept for this character.")
 end
 Window.AIButtons = aiButtons
 

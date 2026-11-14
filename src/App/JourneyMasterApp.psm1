@@ -682,8 +682,16 @@ Other players:
 - Leave out out-of-character talk: text in brackets or double brackets, such as (( brb )) or (ooc), and game-mechanics chatter such as "lfg" or "inv".
 - Leave out trade and recruitment adverts and other chatter that has nothing to do with the character.
 
-Length and form:
-- The length follows the session: a quiet hour gets a few paragraphs, a long evening of quests and talk gets more. No padding, no summary of the summary.
+Scenery, pace and length:
+- Scenery and mood are part of the story, not padding. Each time the character reaches a new zone, town or named place, give it two or three sentences of its own before the action: the lie of the land, the weather and the light, sounds and smells, and the life of the place. Draw them from the lore notes, the zone and place names and the quest text.
+- Lines marked [background] still stay out of the story, even as scenery. Do not build a description on what an NPC said or emoted.
+- The character's level is not an age or years of experience. Do not turn it into seasons, years or a length of service.
+- Let the character notice things and react: a passing thought, a wry observation, weariness, unease or satisfaction that fits the events.
+- Slow down for the turning points and for every real exchange with another player: give each its own scene, with the place around it.
+- Tell the quests through what the quest givers asked and why, in your own words, not as a list. When many people ask for help in one place, give the most telling of them a sentence or two each, rather than one long list.
+- Length: about 1,000 words for a session of an hour or less, about 2,000 words for two hours or so, and about 2,500 words for a long evening of three hours or more. Reach the length with scenes, scenery and the character's thoughts, never by repeating events or summing up.
+
+Form:
 - Write in paragraphs of prose, in the order things happened. No headings, no bullet lists, no times of day unless they matter to the story.
 
 Pictures:

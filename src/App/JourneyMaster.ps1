@@ -33,7 +33,7 @@ param(
     [string]$LoreDir,          # by default ..\wow-forever-rp-profile\references\lore beside this repository, when present
     [string]$ClaudePath,
     [string]$Model = 'opus',   # default AI model (a claude alias); each character's choice under Settings in the game wins
-    [string]$Effort = 'low',   # default effort level, likewise
+    [string]$Effort = 'high',  # default effort level, likewise
     [int]$FullSessions = 10,   # newest sessions whose summary text goes into the snapshot; older ones by title only
     [int]$MaxPromptChars = 60000, # a record longer than this is summarised in parts
     [int]$OverviewMaxBytes = 40000, # the part of the overview the game's snapshot holds

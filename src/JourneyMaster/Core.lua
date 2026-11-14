@@ -71,7 +71,7 @@ Core.DEFAULTS = {
     reloadHours = 2,
     keepSessions = 20,     -- newest sessions whose raw entries stay in the add-on after the app has stored them (deleted ones do not count)
     aiModel = "opus",      -- the AI model the app summarises with (a `claude` command alias)
-    aiEffort = "low",      -- and its effort level
+    aiEffort = "high",     -- and its effort level
 }
 
 -- The choices for the AI model and effort under Settings: the `claude` command's aliases and effort levels.
