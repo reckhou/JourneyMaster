@@ -212,9 +212,16 @@ JourneyMasterOther = nil
     Check 'own say' (Format-Entry @{ k = 'chat'; ch = 'say'; who = $P; text = 'hello' } $P) 'Baldrake Cavendell (the character) said: "hello"'
     Check 'npc from log' (Format-Entry @{ k = 'npc'; ch = 'yell'; who = 'Bazil Thredd'; text = 'Lads!'; src = 'log' } $P) '[background] Bazil Thredd (NPC) yelled (from the chat log): "Lads!"'
     Check 'unmarked pet speech is background' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'As you command.' } $P) '[background] Zigzag (NPC) said: "As you command."'
-    Check 'own minion speaks as a companion' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'The master asks too much.'; own = $true; fam = 'Voidwalker' } $P) 'Zigzag (the character''s own minion, a Voidwalker) said: "The master asks too much."'
-    Check 'own minion line during a fight' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'As you command.'; own = $true; fam = 'Voidwalker'; fight = $true } $P) 'Zigzag (the character''s own minion, a Voidwalker) said during a fight: "As you command."'
-    Check 'own minion emote' (Format-Entry @{ k = 'npc'; ch = 'emote'; who = 'Zigzag'; text = 'Zigzag bows.'; own = $true } $P) '(Emote of Zigzag, the character''s own minion) Zigzag bows.'
+    Check 'own minion stock line' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'As you command.'; own = $true; fam = 'Voidwalker' } $P) 'Zigzag (the character''s own minion, a Voidwalker) said, a stock line of the creature: "As you command."'
+    Check 'own minion stock emote' (Format-Entry @{ k = 'npc'; ch = 'emote'; who = 'Zigzag'; text = 'Zigzag bows.'; own = $true } $P) '(Stock emote of Zigzag, the character''s own minion) Zigzag bows.'
+    Check 'minion voiced in role-play' (Format-Entry @{ k = 'chat'; ch = 'emote'; who = $P; text = '|| Zigzag says: She stopped writing for a reason.'; pet = 'Zigzag'; fam = 'Voidwalker' } $P) 'Zigzag (the character''s own minion, a Voidwalker, speaking in role-play) said: "She stopped writing for a reason."'
+    Check 'minion yelling in role-play' (Format-Entry @{ k = 'chat'; ch = 'emote'; who = $P; text = '| Zigzag yells: Run!'; pet = 'Zigzag' } $P) 'Zigzag (the character''s own minion, speaking in role-play) yelled: "Run!"'
+    Check 'minion emote in role-play' (Format-Entry @{ k = 'chat'; ch = 'emote'; who = $P; text = '|| Zigzag bows low.'; pet = 'Zigzag'; fam = 'Voidwalker' } $P) '(Role-play emote of Zigzag, the character''s own minion, a Voidwalker) Zigzag bows low.'
+    Check 'another character voiced by the player' (Format-Entry @{ k = 'chat'; ch = 'emote'; who = $P; text = '|| Old Tom whispers: Not here.'; pet = 'Zigzag' } $P) 'Old Tom (a character voiced in role-play by the character''s player) whispered: "Not here."'
+    Check 'a character voiced by another player' (Format-Entry @{ k = 'chat'; ch = 'emote'; who = 'Seph' ; text = '|| The guard says: Halt.' } $P) 'The guard (a character voiced in role-play by the player Seph) said: "Halt."'
+    Check 'role-play narration' (Format-Entry @{ k = 'chat'; ch = 'emote'; who = $P; text = '|| The wind rose.' } $P) '(Role-play narration by the character''s player) The wind rose.'
+    Check 'plain emote unchanged' (Format-Entry @{ k = 'chat'; ch = 'emote'; who = 'Seph'; text = 'waves.' } $P) '(emote) Seph waves.'
+    True 'narrator told stock lines are not conversation' ((Get-NarratorRules) -match 'stock line of the creature.*not conversation')
     True 'narrator told the minion is a companion' ((Get-NarratorRules) -match 'own minion.*companion in the story')
     True 'narrator told not to report background lines' ((Get-NarratorRules) -match 'Lines marked \[background\].*Do not report, quote or paraphrase them')
     Check 'gap' (Format-Entry @{ k = 'gap'; what = 'chat lines'; n = 3 } $P) '[3 chat lines here were hidden from the add-on by the game.]'

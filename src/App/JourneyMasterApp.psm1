@@ -479,15 +479,14 @@ function Format-Entry($Entry, [string]$Player) {
         }
         # Speech of NPCs, bosses and pets (a warlock's minions speak as NPCs) is background only: the narrator rules say
         # not to report it (owner's decision, 13 November 2026). The character's own pet or minion is the exception
-        # (owner's decision, 14 November 2026): it is a companion in the story, told with its kind, and a line said
-        # during a fight is marked, because the creature's stock battle cries come then.
+        # (owner's decision, 14 November 2026): it is a companion in the story, told with its kind. What it says here
+        # is a stock line from the game; what the player types for it comes as the player's emote (see 'chat').
         'npc' {
             $verb = switch (& $f 'ch') { 'yell' { 'yelled' } 'whisper' { 'whispered' } 'emote' { 'emote' } default { 'said' } }
             if (& $f 'own') {
                 $kind = if (& $f 'fam') { ", a $(& $f 'fam')" } else { '' }
-                $fight = if (& $f 'fight') { ' during a fight' } else { '' }
-                if ($verb -eq 'emote') { return "(Emote of $who, the character's own minion$kind$fight$fromLog) $(& $f 'text')" }
-                return "$who (the character's own minion$kind) $verb$fight$fromLog`: $(Format-Quote (& $f 'text'))"
+                if ($verb -eq 'emote') { return "(Stock emote of $who, the character's own minion$kind$fromLog) $(& $f 'text')" }
+                return "$who (the character's own minion$kind) $verb$fromLog, a stock line of the creature: $(Format-Quote (& $f 'text'))"
             }
             if ($verb -eq 'emote') { return "[background] (NPC emote$fromLog) $(& $f 'text')" }
             return "[background] $who (NPC) $verb$fromLog`: $(Format-Quote (& $f 'text'))"
@@ -501,6 +500,26 @@ function Format-Entry($Entry, [string]$Player) {
             $role = if ($who -eq $Player) { "$who (the character)" } else { "$who (player)" }
             if ($ch -eq 'emote') {
                 if (& $f 'stock') { return "(emote) $(& $f 'text')" }
+                # The add-on Total RP 3 sends its "NPC speech" as a player's emote that starts with a pipe:
+                # "| Zigzag says: ...", also "yells:" and "whispers:", or "| Zigzag bows." for an emote. These are words
+                # the player typed for another character. When that character is the player's pet (the add-on keeps the
+                # pet's name and kind with the line), it is the character's own minion speaking in role-play.
+                $m = [regex]::Match([string](& $f 'text'), '^\|+\s*(.+)$')
+                if ($m.Success) {
+                    $rest = $m.Groups[1].Value
+                    $pet = & $f 'pet'
+                    $kind = if (& $f 'fam') { ", a $(& $f 'fam')" } else { '' }
+                    $by = if ($who -eq $Player) { "the character's player" } else { "the player $who" }
+                    $s = [regex]::Match($rest, '^(.+?) (says|yells|whispers): (.*)$')
+                    if ($s.Success) {
+                        $name = $s.Groups[1].Value
+                        $verb = @{ says = 'said'; yells = 'yelled'; whispers = 'whispered' }[$s.Groups[2].Value]
+                        $what = if ($pet -and $name -eq $pet) { "the character's own minion$kind, speaking in role-play" } else { "a character voiced in role-play by $by" }
+                        return "$name ($what) $verb`: $(Format-Quote $s.Groups[3].Value)"
+                    }
+                    if ($pet -and $rest.StartsWith("$pet ")) { return "(Role-play emote of $pet, the character's own minion$kind) $rest" }
+                    return "(Role-play narration by $by) $rest"
+                }
                 return "(emote) $who $(& $f 'text')"
             }
             $how = switch ($ch) { 'say' { 'said' } 'yell' { 'yelled' } 'party' { 'said in party chat' } 'raid' { 'said in raid chat' } 'instance' { 'said in instance chat' } default { "said ($ch)" } }
@@ -647,7 +666,11 @@ Facts:
 The character's minion:
 - Lines marked "the character's own minion" are the words and emotes of the character's pet or summoned minion, with its kind (such as Voidwalker, Succubus, Wolf or Bear) when known. The minion is a companion in the story, not background: name it, say what kind of creature it is, and let it speak and act as a character beside the hero.
 - Its words follow the same rule as a player's: reported speech or a direct quotation, and words inside quotation marks must be its own. You may give it a manner drawn from what it says, but no deeds or words the record does not hold.
-- A minion line marked "during a fight" may be one of the creature's stock battle cries and not conversation. Tell such a line at most once and in passing, and do not treat it as an answer to anyone unless it plainly is one.
+- A minion line marked "speaking in role-play", or a "role-play emote" of the minion, was written for it by the character's player. This is the minion's true voice: give it full weight as dialogue and action.
+- A minion line marked "a stock line of the creature", or a "stock emote", is one the game makes every such creature say. It is not conversation. Tell such a line at most once and in passing, or leave it out, and never treat it as an answer to anyone.
+
+Role-play voices:
+- A line marked "a character voiced in role-play by" a player holds words that player wrote for another character, and "role-play narration" is narration that player wrote. Both are part of the story: the character may appear and speak, under the same quotation rule. Do not say that a player voiced it.
 
 Other players:
 - Name only the players who shaped the session: those who fought beside the character, traded, helped, hindered or had a real exchange. Leave out a player who passed through and said a word or two, or mention them in passing without a name.

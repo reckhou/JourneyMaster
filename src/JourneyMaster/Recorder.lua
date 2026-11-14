@@ -442,7 +442,15 @@ local function onChat(event, msg, speaker)
     end
     local body = text(msg)
     if not body then return end
-    Add({ k = "chat", ch = spec.ch, who = short(speaker), text = body, stock = spec.stock or nil })
+    local entry = { k = "chat", ch = spec.ch, who = short(speaker), text = body, stock = spec.stock or nil }
+    -- The add-on Total RP 3 sends its "NPC speech" as the player's own emote that starts with a pipe:
+    -- "| Zigzag says: ...". The player's current pet and its kind ("Voidwalker", "Wolf") are kept with such a line, so
+    -- the app can tell when the voiced character is the player's own pet.
+    if spec.ch == "emote" and not spec.stock and body:sub(1, 1) == "|" and entry.who == short(call(UnitName, "player")) then
+        entry.pet = short(call(UnitName, "pet"))
+        entry.fam = entry.pet and text(call(UnitCreatureFamily, "pet"), 40) or nil
+    end
+    Add(entry)
 end
 
 local function onNpc(event, msg, speaker)
@@ -458,12 +466,12 @@ local function onNpc(event, msg, speaker)
     if body:find("%s", 1, true) then body = body:gsub("%%s", who or "Someone") end -- emotes name their speaker as %s
     if Core.SeenRecently(recent, who, body, now()) then return end
     -- The player's own pet or minion speaks as an NPC. A speaker with the current pet's name is marked as the player's
-    -- own, with its kind ("Voidwalker", "Wolf") and whether it spoke during a fight (stock battle cries come then).
+    -- own, with its kind ("Voidwalker", "Wolf"). These are the creature's stock lines from the game: what the player
+    -- types for the pet arrives as the player's own emote (see onChat).
     local pet = short(call(UnitName, "pet"))
     local own = (who ~= nil and who == pet) or nil
     local fam = own and text(call(UnitCreatureFamily, "pet"), 40) or nil
-    local fight = own and (call(UnitAffectingCombat, "player") or call(UnitAffectingCombat, "pet")) and true or nil
-    Add({ k = "npc", ch = ch, who = who, text = body, own = own, fam = fam, fight = fight })
+    Add({ k = "npc", ch = ch, who = who, text = body, own = own, fam = fam })
 end
 
 -- Deaths and bosses -----------------------------------------------------------------------------------------------

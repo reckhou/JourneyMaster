@@ -304,13 +304,16 @@ eq(last().own, nil, "an NPC is not the player's own minion")
 W.pet = { name = "Zigzag", family = "Voidwalker" }
 fire("CHAT_MSG_MONSTER_SAY", "The master asks too much of me.", "Zigzag")
 eq(last().own, true, "the player's pet is marked as its own") eq(last().fam, "Voidwalker", "the pet's kind is recorded")
-eq(last().fight, nil, "no fight, no fight mark")
-W.combat = true
-fire("CHAT_MSG_MONSTER_SAY", "As you command.", "Zigzag")
-eq(last().fight, true, "a pet line during a fight is marked")
 fire("CHAT_MSG_MONSTER_SAY", "Die!", "Defias Thug")
-eq(last().own, nil, "another speaker during a fight is not the pet")
-W.combat = false
+eq(last().own, nil, "another speaker is not the pet")
+-- Total RP 3's NPC speech: the player's own emote that starts with a pipe.
+fire("CHAT_MSG_EMOTE", "|| Zigzag says: She stopped writing for a reason.", "Baldrake Cavendell")
+eq(last().k, "chat", "voiced line stays the player's emote") eq(last().pet, "Zigzag", "voiced line keeps the pet's name")
+eq(last().fam, "Voidwalker", "voiced line keeps the pet's kind")
+fire("CHAT_MSG_EMOTE", "|| Zigzag says: not mine.", "Seph")
+eq(last().pet, nil, "another player's voiced line keeps no pet")
+fire("CHAT_MSG_EMOTE", "waves.", "Baldrake Cavendell")
+eq(last().pet, nil, "a plain emote keeps no pet")
 W.pet = nil
 
 -- Quests -----------------------------------------------------------------------------------------------------------

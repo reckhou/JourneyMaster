@@ -2,7 +2,7 @@
 
 JourneyMaster keeps a journal of your character's journey in WoW: Forever (World of Warcraft: Forever). An add-on records what your character does while you play, without any input from you. After each play session, a small app on your PC has the AI (artificial intelligence) write a plain account of that session. You read the journal in the game and as Markdown files on your PC.
 
-Every character gets the same narrator, who writes each session like a chapter of a novel: third person, past tense, with a sense of place. It tells a hero's tale: the events, names and numbers stay as the record holds them, whilst the telling may be heightened, the hero may be given feelings, and other players may be judged by what they did and said. What NPCs and bosses say is used only as background and never retold. The character's own pet or minion is the exception: it is a companion in the story, named with its kind (Voidwalker, Wolf and so on).
+Every character gets the same narrator, who writes each session like a chapter of a novel: third person, past tense, with a sense of place. It tells a hero's tale: the events, names and numbers stay as the record holds them, whilst the telling may be heightened, the hero may be given feelings, and other players may be judged by what they did and said. What NPCs and bosses say is used only as background and never retold. The character's own pet or minion is the exception: it is a companion in the story, named with its kind (Voidwalker, Wolf and so on). Words you type for it with the "NPC speech" feature of the add-on Total RP 3 are told as its true voice, whilst the stock lines the game makes it say are mentioned in passing at most. Other characters voiced through that feature also appear in the story.
 
 ## What you need
 
