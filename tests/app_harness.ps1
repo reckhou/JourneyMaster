@@ -285,6 +285,22 @@ JourneyMasterOther = nil
     Check 'overview reply keeps its section headings' (ConvertFrom-OverviewReply "TITLE: x`n`n## One`n`nText`n`n## Two`n`nMore") "## One`n`nText`n`n## Two`n`nMore"
     True 'the first overview asks for a section for each session' ((Get-OverviewRules) -match 'one section for each entry' -and (Get-OverviewRules) -notmatch 'new entries only')
     True 'a continuation asks for the new sections only' ((Get-OverviewRules -Continue) -match 'only the sections for the new entries')
+    # The overview's picture: one for each session, from the journey rather than a level-up.
+    $sh = @(
+        [pscustomobject]@{ Caption = 'Level up, 20:55'; Path = '../screenshots/2026-11-13_205542-level.jpg'; Name = '2026-11-13_205542-level.jpg' },
+        [pscustomobject]@{ Caption = 'Exploring Wetlands, 22:43'; Path = '../screenshots/2026-11-13_224357-zone.jpg'; Name = '2026-11-13_224357-zone.jpg' },
+        [pscustomobject]@{ Caption = 'Level up, 23:26'; Path = '../screenshots/2026-11-13_232610-level.jpg'; Name = '2026-11-13_232610-level.jpg' })
+    Check 'a stay beats level-ups' (Select-OverviewShot $sh).Name '2026-11-13_224357-zone.jpg'
+    Check 'a boss beats a stay' (Select-OverviewShot ($sh + [pscustomobject]@{ Caption = 'Boss defeated, 23:00'; Path = '../screenshots/2026-11-13_230000-boss.jpg'; Name = '2026-11-13_230000-boss.jpg' })).Name '2026-11-13_230000-boss.jpg'
+    Check 'only level-ups: the middle one' (Select-OverviewShot @($sh[0], $sh[2], $sh[0])).Name '2026-11-13_232610-level.jpg'
+    Check 'no pictures, no pick' (Select-OverviewShot @()) $null
+    $entryBody = Get-OverviewEntryBody "First.`n`n![Level up, 20:55](../screenshots/2026-11-13_205542-level.jpg)`n`nSecond.`n`n## Screenshots`n`n![Exploring Wetlands, 22:43](../screenshots/2026-11-13_224357-zone.jpg)`n" '2026-11-13_224357-zone.jpg' 3
+    Check 'the entry shows only the chosen picture, as a marker' $entryBody "First.`n`nSecond.`n`n[picture 3: Exploring Wetlands, 22:43]"
+    $ovShots = @([pscustomobject]@{ N = 1; Path = 'screenshots/a.jpg'; Caption = 'One, 10:00' }, [pscustomobject]@{ N = 2; Path = 'screenshots/b.jpg'; Caption = 'Two, 11:00' })
+    $ovText = Add-OverviewPictures "## A`n`nText a.`n`n{{picture 1}}`n`nMore a.`n`n## B`n`nText b." $ovShots 2
+    True 'a placed picture stays where the AI put it' ($ovText -match '(?s)Text a\.\s+!\[One, 10:00\]\(screenshots/a\.jpg\)\s+More a\.')
+    True 'an unplaced picture goes to the end of its section' ($ovText -match '(?s)Text b\.\s+!\[Two, 11:00\]\(screenshots/b\.jpg\)\s*$')
+    True 'a marker for no picture is dropped' ((Add-OverviewPictures "## A`n`nX {{picture 9}} y." $ovShots 1) -notmatch '\{\{')
     Check 'tampered snapshot refused' (Test-JournalSnapshotLua ($lua + "`nos.exit()")) 'unexpected text outside string values'
     Check 'ascii only' ([regex]::IsMatch($lua, '[^\x00-\x7F]')) $false
     Check 'cut on a character' (Get-SnapshotText ('ab' + [char]0xE9 + 'cd') 3).StartsWith('ab' + [char]0xE9) $false
@@ -402,11 +418,13 @@ JourneyMasterOther = nil
     True 'no key events section in the prompt' ($prompt -notmatch '# Key events')
     Check 'screenshot copied' @(Get-ChildItem (Join-Path $charDir 'screenshots')).Count 1
     True 'overview written' (Test-Path (Join-Path $charDir 'overview.md'))
-    $journal = Read-FileText (Join-Path $charDir 'journal.md')
-    True 'export is the overview, with a heading for each session in order' ($journal -match '(?s)^# The journey of Baldrake Cavendell\r?\n\r?\n## Session record\r?\n.*## Session record\r?\n')
-    True 'export has no Overview heading and no session files' ($journal -notmatch '## Overview' -and $journal -notmatch '(?m)^\*Baldrake')
+    $ovFile = Read-FileText (Join-Path $charDir 'overview.md')
+    True 'overview has a heading for each session in order' ($ovFile -match '(?s)^# The journey of Baldrake Cavendell so far\r?\n.*## Session record\r?\n.*## Session record\r?\n')
+    True 'no journal.md is written' (-not (Test-Path (Join-Path $charDir 'journal.md')))
     $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
     True 'snapshot revision 2' ($snap -match 'revision = 2,')
+    True 'the overview holds one picture of the session' ((Read-FileText (Join-Path $charDir 'overview.md')) -match '!\[Level up, \d\d:\d\d\]\(screenshots/2026-11-12_\d{6}-level\.jpg\)')
+    True 'the snapshot lists the overview picture' ($snap -match 'overviewShots = \{ \{ name = ')
     $thumbs = @(Get-ChildItem (Join-Path $addon 'Thumbs') -Recurse -Filter '*.tga')
     Check 'thumbnail made in the add-on folder' $thumbs.Count 1
     Check 'thumbnail folder named safely' $thumbs[0].Directory.Name 'Baldrake_Cavendell-LivingFlame'
@@ -477,15 +495,10 @@ JourneyMasterOther = nil
     $out = & $run ($T + 9001) 'yes' @('-FullSessions', '1')
     $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
     Check 'texts in the snapshot' ([regex]::Matches($snap, 'text = ').Count) 1
-    Check 'thumbnails of sessions listed by title only removed' @(Get-ChildItem (Join-Path $addon 'Thumbs') -Recurse -Filter '*.tga').Count 0
+    # A session listed by title only has no thumbnail of its own, but the overview keeps its one picture.
+    Check 'only the overview picture keeps a thumbnail' @(Get-ChildItem (Join-Path $addon 'Thumbs') -Recurse -Filter '*.tga').Count 1
+    True 'the snapshot still lists the overview picture' ($snap -match 'overviewShots = \{ \{ name = ')
     True 'confirmed follows the record' ($snap -match 'confirmed = 54,')
-
-    # -Export writes journal.md without any AI call.
-    Remove-Item (Join-Path $charDir 'journal.md')
-    $before = @(Get-ChildItem $calls).Count
-    $out = & $run ($T + 9100) 'yes' @('-Export')
-    True 'export written on request' (Test-Path (Join-Path $charDir 'journal.md'))
-    Check 'export calls no AI' @(Get-ChildItem $calls).Count $before
 
     # Entries that arrive for a session already summarised are reported, not silently left out.
     $char.entries = @($session1 + $session2 + $long + @(@{ i = 54; s = 4; t = $T + 9000; k = 'login'; z = 'Elwynn Forest' },

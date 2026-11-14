@@ -954,7 +954,7 @@ function Get-SnapshotText([string]$Text, [int]$MaxBytes = 16000) {
 }
 
 # JournalSnapshot.lua: Revision, Written, and Characters (Key, Confirmed, optional Overview (the text of the journey
-# overview), Sessions newest first: S, Title, First, Last,
+# overview) and OverviewShots (its pictures, like Shots below), Sessions newest first: S, Title, First, Last,
 # Zones, LevelFrom, LevelTo, File, Text or $null for an older session listed by date and title only, and optional Shots:
 # Name, Thumb (the thumbnail's game path), W and H (the part of the thumbnail the picture fills)). Optional per
 # character: Deleted (session numbers), SeenTitle and SeenDelete (session number -> time of the game's rename or
@@ -972,6 +972,12 @@ function New-JournalSnapshotLua($Model) {
         $out.Add('        [' + (ConvertTo-LuaString $c.Key) + '] = {')
         $out.Add("            confirmed = $([long]$c.Confirmed),")
         if ($c.PSObject.Properties['Overview'] -and $c.Overview) { $out.Add('            overview = ' + (ConvertTo-LuaString $c.Overview) + ',') }
+        $ovShots = @(if ($c.PSObject.Properties['OverviewShots']) { $c.OverviewShots | Where-Object { $_ } })
+        if ($ovShots.Count -gt 0) {
+            $out.Add('            overviewShots = { ' + (($ovShots | ForEach-Object {
+                '{ name = ' + (ConvertTo-LuaString $_.Name) + ', thumb = ' + (ConvertTo-LuaString $_.Thumb) + ", w = $([int]$_.W), h = $([int]$_.H) }"
+            }) -join ', ') + ' },')
+        }
         $out.Add('            sessions = {')
         foreach ($s in @($c.Sessions)) {
             $fields = @("s = $([long]$s.S)", ('title = ' + (ConvertTo-LuaString $s.Title)), "first = $([long]$s.First)", "last = $([long]$s.Last)")
@@ -1014,12 +1020,59 @@ function Test-JournalSnapshotLua([string]$Lua) {
     if ($rest -match '[^\sA-Za-z0-9_=,{}.\[\]]') { return 'unexpected text outside string values' }
     $allowed = 'local', '_', 'ns', 'journalSnapshot', 'schema', 'revision', 'written', 'characters', 'confirmed', 'sessions',
         's', 'title', 'first', 'last', 'levelFrom', 'levelTo', 'zones', 'file', 'text', 'shots', 'name', 'thumb', 'w', 'h',
-        'deleted', 'seenTitle', 'seenDelete', 'overview'
+        'deleted', 'seenTitle', 'seenDelete', 'overview', 'overviewShots'
     foreach ($w in [regex]::Matches($rest, '[A-Za-z_]+')) { if ($allowed -cnotcontains $w.Value) { return "unexpected name $($w.Value)" } }
     ''
 }
 
 # The overview and the export ---------------------------------------------------------------------------------------------
+
+# The one screenshot of a session that goes into the overview, from the session's pictures (Get-SessionShots: Caption,
+# Path, Name; the file name ends -level, -boss, -dungeon, -new-zone or -zone, as Save-Screenshots names them). A picture
+# taken during the journey beats a level-up one, which is taken in the instant of the level and often shows little
+# of the way: boss, then a stay in a zone, then a first visit, then a dungeon entry, then any other, then level-up.
+# Among the pictures of the best kind, the one in the middle of the session. Returns $null when there are none.
+function Select-OverviewShot($Shots) {
+    $rank = @{ 'boss' = 5; 'zone' = 4; 'new-zone' = 3; 'dungeon' = 2; 'level' = 0 }
+    $best = -1; $pool = @()
+    foreach ($s in @($Shots | Where-Object { $_ })) {
+        $why = if ($s.Name -match '-(level|boss|dungeon|new-zone|zone)\.[A-Za-z0-9]+$') { $Matches[1] } else { '' }
+        $r = if ($rank.ContainsKey($why)) { $rank[$why] } else { 1 }
+        if ($r -gt $best) { $best = $r; $pool = @() }
+        if ($r -eq $best) { $pool += $s }
+    }
+    if ($pool.Count -eq 0) { return $null }
+    $pool[[int][Math]::Floor(($pool.Count - 1) / 2)]
+}
+
+# A session's body as the overview AI sees it: its pictures and the Screenshots heading left out, except the chosen
+# picture (PickName), which becomes the line "[picture N: caption]" at the place it has in the account.
+function Get-OverviewEntryBody([string]$Body, [string]$PickName, [int]$N) {
+    $Body = [regex]::Replace($Body, '(?m)^[ \t]*!\[([^\]]*)\]\(([^)\s]+)\)[ \t]*$', {
+        param($m)
+        $name = ($m.Groups[2].Value -split '[\\/]')[-1]
+        if ($PickName -and $name -eq $PickName) { "[picture $N`: $($m.Groups[1].Value)]" } else { '' }
+    })
+    $Body = [regex]::Replace($Body, '(?m)^##+ Screenshots[ \t]*$', '')
+    [regex]::Replace($Body, '\n{3,}', "`n`n").Trim()
+}
+
+# Puts the chosen pictures into the new overview text: each {{picture N}} becomes the picture. A picture the AI did not
+# place goes at the end of its entry's section, when the text has one section for each of the EntryCount entries (the
+# Nth picture is for the Nth section). Shots: N, Path (from the overview's folder) and Caption.
+function Add-OverviewPictures([string]$Text, $Shots, [int]$EntryCount) {
+    $placed = Add-AccountPictures $Text $Shots
+    $text = $placed.Account
+    $rest = @($placed.Rest)
+    if ($rest.Count -eq 0) { return $text }
+    $parts = @([regex]::Split($text, '(?m)^(?=## )') | Where-Object { $_.Trim() })
+    if ($parts.Count -ne $EntryCount) { return $text }
+    foreach ($s in $rest) {
+        $i = [int]$s.N - 1
+        if ($i -ge 0 -and $i -lt $parts.Count) { $parts[$i] = $parts[$i].TrimEnd() + "`n`n![$($s.Caption)]($($s.Path -replace '\\', '/'))`n`n" }
+    }
+    (($parts | ForEach-Object { $_.Trim() }) -join "`n`n").Trim()
+}
 
 # The overview's rules. It has one section for each session, headed with the session's title. With Continue, the
 # reply holds the sections for the new entries only: the app puts them after the sections already written.
@@ -1033,6 +1086,7 @@ You write the overview of a character's journey in World of Warcraft (the WoW: F
 - Write one section for each entry, in the order given. Start each section with a heading line: two hash signs, a space, and the entry's title exactly as given (without the line in brackets after it). Under it, a few paragraphs of prose that tell that session's part of the journey: where the character went, what it did and with whom, the turning points (levels, deaths, dungeons, bosses). Leave out small detail.
 - Prose only under each heading: no lists, no other headings.
 - Write about the events, not about your sources: never mention entries, chapters, records, sessions' files or the chat log.
+- A line such as "[picture 2: Exploring Wetlands, 22:43]" inside an entry is the one screenshot chosen for that entry. Place it once, as a line of its own between paragraphs of that entry's section, written exactly as {{picture 2}}, after the paragraph that tells of that moment. If the entry does not show the moment, put it after the last paragraph of the section. Do not describe a picture or mention it in the prose.
 '@
     if ($Continue) {
         $text += "`n- A previous overview is given. Do not repeat it. Write only the sections for the new entries, one for each, in the order given, in the same voice.`n`nReply with those sections only."
@@ -1067,12 +1121,6 @@ function New-OverviewPrompt([string]$Character, $Sessions, [string]$Previous = '
         [void]$sb.AppendLine($s.Body)
     }
     $sb.ToString()
-}
-
-# The journal export: a title and the overview, whose sections are headed by the session titles. The sessions' own
-# files stay in the character's sessions folder.
-function New-JournalExport([string]$Character, [string]$Overview) {
-    "# The journey of $Character`n`n$($Overview.Trim())`n"
 }
 
 # Claude ------------------------------------------------------------------------------------------------------------------
@@ -1119,5 +1167,5 @@ Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Test-Coverage, 
     Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, ConvertFrom-SignalLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
     Format-Entry, Format-RecordLines, Get-ShotLabel, Add-AccountPictures, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
     ConvertFrom-SummaryReply, Test-Grounded, Get-SessionFileName, Format-SessionLine, Format-SessionMarkdown, Read-SessionMarkdown,
-    Find-Screenshot, Get-SessionShots, New-Thumbnail, ConvertTo-LuaString, Get-SnapshotText, New-JournalSnapshotLua, Test-JournalSnapshotLua, Get-OverviewRules, ConvertFrom-OverviewReply,
-    New-OverviewPrompt, New-JournalExport, Format-CliArgument, Invoke-ClaudeCli
+    Find-Screenshot, Get-SessionShots, New-Thumbnail, ConvertTo-LuaString, Get-SnapshotText, New-JournalSnapshotLua, Test-JournalSnapshotLua, Get-OverviewRules, ConvertFrom-OverviewReply, Select-OverviewShot, Get-OverviewEntryBody, Add-OverviewPictures,
+    New-OverviewPrompt, Format-CliArgument, Invoke-ClaudeCli

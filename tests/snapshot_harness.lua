@@ -64,6 +64,10 @@ local ovText = texts(ov)
 check(ovText:find("The journey of Baldrake Cavendell so far", 1, true) ~= nil, "overview has its title")
 check(ovText:find("Worgen in the Woods", 1, true) ~= nil and ovText:find("Older chapter", 1, true) ~= nil, "overview shows a heading for each session")
 check(ovText:find("Baldrake came out into Darkshire at dusk.", 1, true) ~= nil, "overview text shown")
+local ovImages = 0
+for _, b in ipairs(ov) do if b.image then ovImages = ovImages + 1 end end
+eq(ovImages, 1, "overview shows its picture as a thumbnail")
+check(ovText:find("Exploring Duskwood, 22:00", 1, true) ~= nil, "the picture has its caption")
 check(texts(Journal.OverviewBlocks(c, "nobody-Nowhere")):find("No overview yet.", 1, true) ~= nil, "no overview: says so")
 
 -- The window: the same session is selected under both tabs.

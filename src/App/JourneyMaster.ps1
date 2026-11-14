@@ -9,7 +9,7 @@ Each run (or each change of the add-on's saved file, with -Watch):
   2. Groups entries into play sessions and, for each finished session not yet summarised, fills its dungeon and raid
      windows from the game's chat log, has the AI write the summary (in parts for a very long session), and saves it as
      <DataDir>\journeys\<character>\sessions\<date>-<n>.md with its screenshots. A session file is never touched again.
-  3. Rewrites the journey overview (overview.md) and the whole-journal export (journal.md).
+  3. Rewrites the journey overview (overview.md): a section for each session, with one of its screenshots.
   4. Writes JournalSnapshot.lua into the add-on's folder, with thumbnails of the newest sessions' screenshots; the game
      shows it at the next /reload or login.
 A session is finished at once when the player finishes it in the game, or once the game is closed and 30 minutes have
@@ -18,7 +18,6 @@ passed since its last entry (a logout alone does not finish it; while the game r
 Examples:
   powershell -NoProfile -ExecutionPolicy Bypass -File src\App\JourneyMaster.ps1
   powershell -NoProfile -ExecutionPolicy Bypass -File src\App\JourneyMaster.ps1 -Watch
-  powershell -NoProfile -ExecutionPolicy Bypass -File src\App\JourneyMaster.ps1 -Export
 Kept ASCII-only: Windows PowerShell 5.1 reads a script without a byte-order mark as ANSI.
 #>
 param(
@@ -38,7 +37,6 @@ param(
     [int]$OverviewMaxChars = 120000, # above this the overview is updated from the previous one and the new sessions
     [switch]$Watch,
     [int]$PollSeconds = 15,
-    [switch]$Export,           # only write journal.md for every character, then stop
     [long]$Restore = 0,        # only put deleted session <n> back (of -Character, when more than one has it), then stop
     [string]$Character,        # the character key ("Name-Realm") for -Restore
     [switch]$NoOverview,
@@ -177,7 +175,6 @@ function Remove-Session($key, $c, [long]$Number, [long]$T) {
     }
     $c.Deleted[$k] = $T
     Save-State
-    Write-Export $key
     Say "$key`: session $Number deleted in the game; its files are in $dir" 'Cyan'
     $true
 }
@@ -197,7 +194,6 @@ function Rename-Session($key, $c, [long]$Number, [long]$T, [string]$Title) {
         $known.Title = $Title
     }
     Save-State
-    Write-Export $key
     Say "$key`: session $Number renamed in the game to '$Title'" 'Cyan'
     $true
 }
@@ -223,7 +219,6 @@ function Restore-Session($key, $c, [long]$Number) {
     $c.Deleted.Remove($k)
     Remove-Item -LiteralPath $dir -Recurse -Force
     Save-State
-    Write-Export $key
     Say "$key`: session $Number restored$(if ($known) { " as sessions\$($known.File)" } else { ' (not summarised yet)' })" 'Green'
     $true
 }
@@ -506,10 +501,19 @@ function Update-Overview($key) {
         $use = @($docs | Where-Object { [long]$_.S.Last -gt $since })
     }
     if ($previous -and $use.Count -eq 0) { return }
-    $r = Invoke-Model (Get-OverviewRules -Continue:([bool]$previous)) (New-OverviewPrompt ([string]$c.Name) $use $previous)
+    # One screenshot for each session: the AI places it in that session's section (it reads only the marker and the caption).
+    $entries = @(); $pictures = @(); $n = 0
+    foreach ($d in $use) {
+        $n++
+        $pick = Select-OverviewShot @(Get-SessionShots $d.Body)
+        if ($pick) { $pictures += [pscustomobject]@{ N = $n; Path = "screenshots/$($pick.Name)"; Caption = $pick.Caption } }
+        $entries += [pscustomobject]@{ Title = $d.Title; Line = $d.Line; Body = (Get-OverviewEntryBody $d.Body $(if ($pick) { $pick.Name } else { '' }) $n) }
+    }
+    $r = Invoke-Model (Get-OverviewRules -Continue:([bool]$previous)) (New-OverviewPrompt ([string]$c.Name) $entries $previous)
     if ($r.is_error -or -not $r.result) { Say "the AI call failed: $($r.result)" 'Yellow'; return }
     $text = ConvertFrom-OverviewReply ([string]$r.result)
     if (-not $text) { Say "$key`: the AI wrote no overview" 'Yellow'; return }
+    $text = Add-OverviewPictures $text $pictures $use.Count
     # A continuation holds only the sections for the new sessions: they go after the sections already written.
     if ($previous) { $text = $previous.Trim() + "`n`n" + $text }
     $from = (ConvertFrom-Epoch $docs[0].S.First).ToString('d MMMM yyyy')
@@ -531,20 +535,6 @@ function Get-FilesStamp($c) {
 function Get-OverviewText($c) {
     $path = Join-Path (Get-CharDir $c) 'overview.md'
     if (Test-Path -LiteralPath $path) { (Read-SessionMarkdown (Read-FileText $path)).Body } else { '' }
-}
-
-function Write-Export($key) {
-    $c = $State.Characters[$key]
-    $docs = @(Get-SessionDocs $c)
-    if ($docs.Count -eq 0) {
-        # Every session deleted: the export, which the app writes, goes too.
-        $old = Join-Path (Get-CharDir $c) 'journal.md'
-        if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old }
-        return
-    }
-    $overview = Get-OverviewText $c
-    Write-FileAtomic (Join-Path (Get-CharDir $c) 'journal.md') (New-JournalExport ([string]$c.Name) $overview)
-    Dbg "$key`: journal.md written"
 }
 
 # Step 4: the snapshot ---------------------------------------------------------------------------------------------------
@@ -593,7 +583,8 @@ function Publish-Snapshot {
                 File = $rel; Text = $(if ($full) { Get-SnapshotText $d.Body } else { $null })
                 Shots = $(if ($full) { @(Get-Thumbnails $c $d.Body) } else { @() }) }
         }
-        [pscustomobject]@{ Key = $key; Confirmed = [long]$c.LastSeq; Overview = (Get-SnapshotText (Get-OverviewText $c) $OverviewMaxBytes); Sessions = @($sessions)
+        $overviewText = Get-OverviewText $c
+        [pscustomobject]@{ Key = $key; Confirmed = [long]$c.LastSeq; Overview = (Get-SnapshotText $overviewText $OverviewMaxBytes); OverviewShots = @(Get-Thumbnails $c $overviewText); Sessions = @($sessions)
             Deleted = @($c.Deleted.Keys | ForEach-Object { [long]$_ }); SeenTitle = $c.SeenTitles; SeenDelete = $c.SeenDeleted }
     }
     Remove-UnusedThumbnails
@@ -609,10 +600,6 @@ function Publish-Snapshot {
 # Run ----------------------------------------------------------------------------------------------------------------------
 
 $State = Read-State
-if ($Export) {
-    foreach ($key in @($State.Characters.Keys)) { Write-Export $key; Say "$key`: $(Join-Path (Get-CharDir $State.Characters[$key]) 'journal.md')" 'Green' }
-    return
-}
 if ($Restore -gt 0) {
     $keys = @($State.Characters.Keys | Where-Object { (-not $Character -or $_ -eq $Character) -and (Test-Path -LiteralPath (Get-DeletedDir $State.Characters[$_] $Restore)) })
     if ($keys.Count -ne 1) {
@@ -635,16 +622,14 @@ function Invoke-Once {
     foreach ($key in $updated) {
         Use-AISettings $State.Characters[$key]
         if (-not $NoOverview) { Update-Overview $key }
-        Write-Export $key
-    }
-    # Session files or the overview edited (or deleted) on the PC: the export and the game's snapshot follow.
+        }
+    # Session files or the overview edited (or deleted) on the PC: the game's snapshot follows.
     foreach ($key in @($State.Characters.Keys)) {
         $c = $State.Characters[$key]
         $stamp = Get-FilesStamp $c
         if ($c.ContainsKey('FilesStamp') -and [string]$c.FilesStamp -ne $stamp -and $updated -notcontains $key) {
-            Say "$key`: session files changed on the PC; the journal export and the game's snapshot follow" 'Cyan'
-            Write-Export $key
-            $script:Changed = $true
+            Say "$key`: session files changed on the PC; the game's snapshot follows" 'Cyan'
+                    $script:Changed = $true
         }
         $c.FilesStamp = $stamp
     }

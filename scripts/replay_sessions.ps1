@@ -212,12 +212,11 @@ if (Test-Path -LiteralPath $overviewPath) {
     $report.Add('')
     $report.Add("Overview: $(($ov -split '\s+').Count) words; invented: $(if ($ovInvented) { $ovInvented -join ', ' } else { 'none' }); talks about its sources: $(if ($ovMeta) { $ovMeta -join ', ' } else { 'none' }).")
 } else { $extras += 'no overview was written' }
-$journalPath = Join-Path $charDir 'journal.md'
-if (Test-Path -LiteralPath $journalPath) {
-    $j = Read-FileText $journalPath
-    foreach ($d in $docs) { if (-not $j.Contains("## $($d.Title)")) { $extras += "the export lacks '$($d.Title)'" } }
-    $report.Add("Export: journal.md, the overview with $([regex]::Matches($j, '(?m)^## ').Count) session headings for $($docs.Count) sessions.")
-} else { $extras += 'no export was written' }
+if (Test-Path -LiteralPath $overviewPath) {
+    $ovText = Read-FileText $overviewPath
+    foreach ($d in $docs) { if (-not $ovText.Contains("## $($d.Title)")) { $extras += "the overview lacks a section for '$($d.Title)'" } }
+    $report.Add("Overview: $([regex]::Matches($ovText, '(?m)^## ').Count) session headings for $($docs.Count) sessions; $([regex]::Matches($ovText, '(?m)^!\[').Count) pictures.")
+}
 foreach ($x in $extras) { $report.Add("FAIL: $x."); $failed++ }
 
 $long = $state.Characters.'Maren Ashdown-Replay'.Sessions.'3'
