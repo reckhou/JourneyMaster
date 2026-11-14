@@ -809,16 +809,21 @@ function Test-Grounded([string]$Account, [string]$Source) {
     foreach ($m in [regex]::Matches(($Source -replace '(?<=\d),(?=\d{3})', ''), '\d+(?:\.\d+)?')) { $srcNumbers[$m.Value] = $true }
     $missing = New-Object Collections.Generic.List[string]
     $seen = @{}
-    # Words the account itself uses in lower case are ordinary words, so a capital at the start of a sentence or a line
-    # does not make them names ("Quiet" after "a quiet hour").
+    # Words the account or the source uses in lower case are ordinary words, so a capital at the start of a sentence or a
+    # line does not make them names ("Quiet" after "a quiet hour"). Nor does it for a word ending in -ing ("Returning").
     $plain = @{}
-    foreach ($m in [regex]::Matches($Account, "(?<![\p{L}'])\p{Ll}[\p{L}']*")) { $plain[$m.Value] = $true }
+    foreach ($m in [regex]::Matches($Account + "`n" + $Source, "(?<![\p{L}'])\p{Ll}[\p{L}']*")) { $plain[$m.Value] = $true }
     foreach ($m in [regex]::Matches($Account, "\b\p{Lu}[\p{L}']*(?:-\p{Lu}[\p{L}']*)?")) {
         $w = $m.Value.TrimEnd("'").Replace("'s", '')
         if ($seen.ContainsKey($w) -or $CommonWords -ccontains $w) { continue }
         $before = $Account.Substring(0, $m.Index).TrimEnd(' ', '"', "'", '(', '*')
         $startsSentence = $before -eq '' -or $before.EndsWith('.') -or $before.EndsWith('!') -or $before.EndsWith('?') -or $before.EndsWith(':') -or $before.EndsWith("`n")
-        if ($startsSentence -and $plain.ContainsKey($w.ToLowerInvariant())) { continue }
+        if ($startsSentence) {
+            $lw = $w.ToLowerInvariant()
+            $ordinary = $lw -match '^\p{L}{3,}ing$'
+            foreach ($form in @($lw, ($lw -replace 'es$', ''), ($lw -replace 's$', ''))) { if ($plain.ContainsKey($form)) { $ordinary = $true } }
+            if ($ordinary) { continue }
+        }
         $seen[$w] = $true
         $low = $w.ToLowerInvariant()
         $parts = $low -split '-'
@@ -1172,7 +1177,9 @@ You write the overview of a character's journey in World of Warcraft (the WoW: F
 - Other players: name only those who shaped that session's part of the journey, and leave out those who only passed through. Do not invent deeds, words, thoughts or feelings for them. Use "he" or "she" for the character as the entries do. Never use "he" or "she" for another person, and never call one a man or a woman: refer to them by name, and repeat the name or recast the sentence before you use "they" for one person.
 - Speech: tell it as reported speech by default. Use a direct quotation only for a line with weight, and only words that stand inside quotation marks in the entries, unchanged.
 - The character's pet or minion, where the entries tell of it, stays a companion in the story: keep its name and its kind.
-- Write one section for each entry, in the order given. Start each section with a heading line: two hash signs, a space, and the entry's title exactly as given (without the line in brackets after it). Under it, a few paragraphs of prose that tell that session's part of the journey: where the character went, what it did and with whom, the turning points (levels, deaths, dungeons, bosses). Leave out small detail.
+- Write one section for each entry, in the order given. Start each section with a heading line: two hash signs, a space, and the entry's title exactly as given (without the line in brackets after it). Under it, three or four paragraphs of prose, about 500 words, however long the entry is: a condensed retelling of that session's part of the journey, not a copy of its chapter.
+- Write each section in your own words. Do not copy sentences or long phrases from the entries; only words inside quotation marks may be taken over unchanged, and use few of them.
+- Keep the turning points: where the character went, levels gained, deaths, dungeons and bosses, the end of a quest chain, and the players who fought beside the character. Leave out the rest: single quest givers and their errands, items and small exchanges. One short touch of scenery or mood for each place is enough.
 - Prose only under each heading: no lists, no other headings.
 - Write about the events, not about your sources: never mention entries, chapters, records, sessions' files or the chat log.
 - A line such as "[picture 2: Exploring Wetlands, 22:43]" inside an entry is the one screenshot chosen for that entry. Place it once, as a line of its own between paragraphs of that entry's section, written exactly as {{picture 2}}, after the paragraph that tells of that moment. If the entry does not show the moment, put it after the last paragraph of the section. Do not describe a picture or mention it in the prose.

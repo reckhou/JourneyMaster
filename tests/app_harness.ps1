@@ -254,6 +254,7 @@ JourneyMasterOther = nil
     Check 'possessive' (@(Test-Grounded "Baldrake's friend Seph's sword." $src).Count) 0
     Check 'ordinary word starting a title' (@(Test-Grounded ("Quiet evening in Darkshire`nIt was a quiet evening.") $src).Count) 0
     Check 'name starting a sentence still caught' ((Test-Grounded 'Baldrake went on. Quillfeather followed.' $src) -join ',') 'Quillfeather'
+    Check 'ordinary words starting sentences' (@(Test-Grounded 'Baldrake went on. Returning, he rested. Companions came and went.' 'Baldrake rested with his companion.').Count) 0
     Check 'source mentions found' ((Test-SourceMentions 'The record holds nothing more. In this part Maren slept, as the chat log shows.') -join '|') 'the record|this part|the chat log'
     Check 'plain account has none' (@(Test-SourceMentions 'Maren slept at the inn and recorded nothing in her diary.').Count) 0
     Check 'plurals of recorded names' (@(Test-Grounded 'The Skeletal Healers and the Tainted Ones fell.' '3/3 Skeletal Healer slain. 8/8 Nightbane Tainted One slain.').Count) 0
