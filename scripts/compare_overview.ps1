@@ -21,7 +21,8 @@ param(
     [string]$Skip = '',   # session numbers to leave out, comma-separated (for example ones deleted in the game the app has not handled yet)
     [string]$DataDir,
     [string]$OutDir,
-    [string]$ClaudePath
+    [string]$ClaudePath,
+    [string]$ExtraRules    # a text file added after the overview rules (a rule change under test)
 )
 $ErrorActionPreference = 'Stop'
 $Here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -63,6 +64,7 @@ foreach ($d in $docs) {
     $entries += [pscustomobject]@{ Title = $d.Title; Line = $d.Line; Body = (Get-OverviewEntryBody $d.Body $(if ($pick) { $pick.Name } else { '' }) $n) }
 }
 $rules = Get-OverviewRules
+if ($ExtraRules) { $rules = $rules.TrimEnd() + "`n`n" + (Read-FileText ([IO.Path]::GetFullPath($ExtraRules))).Trim() + "`n" }
 $prompt = New-OverviewPrompt ([string]$c.Name) $entries ''
 $rulesFile = Join-Path $WorkDir 'rules.md'
 [IO.File]::WriteAllText($rulesFile, $rules, $Utf8)
@@ -100,6 +102,7 @@ $text = $text -replace '\]\(screenshots/', "](../../../data/journeys/$($c.Folder
 [IO.File]::WriteAllText((Join-Path $OutDir "$Label.md"), "# The journey of $($c.Name) so far`n`n*$span*`n`n$($text.Trim())`n", $Utf8)
 $summary = [pscustomobject]@{
     Label = $Label; Model = $Model; Effort = $Effort; Character = $Character; Sessions = @($docs | ForEach-Object { $_.Number })
+    ExtraRules = $(if ($ExtraRules) { [IO.Path]::GetFileName($ExtraRules) } else { '' })
     PromptChars = $prompt.Length; Seconds = $secs; CostUsd = $cost; Models = $models; Attempts = $attempts
     Words = ($text -split '\s+').Count; FirstFaults = $firstFaults; FaultsLeft = $faults
 }
