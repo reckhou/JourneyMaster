@@ -271,6 +271,13 @@ JourneyMasterOther = nil
     Check 'a level written in words counts' (@(Test-Coverage 'Maren entered The Stockade, saw Bazil Thredd fall, reached her twenty-fifth level, and was killed by Targorr the Dread.' $kf).Count) 0
     Check 'number words' ((Get-NumberWords 28) -join '|') 'twenty-eight|twenty-eighth'
     Check 'number words for a ten' ((Get-NumberWords 30) -join '|') 'thirty|thirtieth'
+    $ovSrc = "## One (line)`nMaren met Seph in Darkshire.`n## Two (line)`nMaren reached level 25."
+    Check 'a sound overview has no faults' (@(Test-Overview "## One`n`nMaren met Seph in Darkshire.`n`n{{picture 1}}`n`n## Two`n`nShe reached level 25." @('One', 'Two') $ovSrc).Count) 0
+    True 'a missing section is a fault' (((Test-Overview "## One`n`nMaren met Seph and reached level 25." @('One', 'Two') $ovSrc) -join '|') -match '^It has 1 section for 2 entries')
+    True 'a wrong heading is a fault' (((Test-Overview "## One`n`nMaren met Seph.`n`n## Second`n`nMaren reached level 25." @('One', 'Two') $ovSrc) -join '|') -match 'Section 2 is headed "Second"')
+    True 'an invented name is a fault' (((Test-Overview "## One`n`nMaren met Zanzibar.`n`n## Two`n`nMaren reached level 25." @('One', 'Two') $ovSrc) -join '|') -match 'do not hold: Zanzibar\.')
+    True 'talk about sources is a fault' (((Test-Overview "## One`n`nMaren met Seph.`n`n## Two`n`nIn the next chapter Maren reached level 25." @('One', 'Two') $ovSrc) -join '|') -match 'talks about its sources: the next chapter')
+    True 'a correction holds the prompt, the faults and the reply' ((New-OverviewCorrection 'PROMPT' 'REPLY' @('Fault one.')) -match '(?s)^PROMPT\r?\n\r?\n# Correction.*- Fault one\..*"""\r?\nREPLY\r?\n"""')
     True 'narrator told to prefer names to they' ((Get-NarratorRules) -match 'Repeat the name or recast the sentence')
     True 'overview keeps the rules for other players' ((Get-OverviewRules) -match 'name only those who shaped' -and (Get-OverviewRules) -match 'repeat the name or recast the sentence' -and (Get-OverviewRules -Continue) -match 'reported speech by default')
     Check 'nothing lost' (@(Test-Coverage 'Maren took The Stockade Riots, entered The Stockade with Tobin, saw Bazil Thredd fall, reached level 25, and was killed by Targorr the Dread.' $kf).Count) 0
@@ -562,7 +569,24 @@ JourneyMasterOther = nil
     $out = & $runPlain ($T + 90300) 'yes' @('-SignalsFrom', "$from")
     True 'a repeated request is answered without a summary' ($out -match 'session 4 is already summarised')
     Check 'and calls no AI' (@(Get-ChildItem $calls).Count - $before) 2
+
+    # The overview is checked: one with an invented name is asked for once more, and the corrected one is kept.
+    $env:FAKE_CLAUDE_OVERVIEW_FAULT = '1'
+    $char.entries = @($char.entries) + @(@{ i = 57; s = 5; t = $T + 95000; k = 'login'; z = 'Elwynn Forest' }, @{ i = 58; s = 5; t = $T + 95100; k = 'end'; z = 'Elwynn Forest' })
+    $char.seq = 58
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    $from = (Get-Item $gameLog).Length
+    [IO.File]::AppendAllText($gameLog, ((ConvertFrom-Epoch ($T + 95200)).ToString('M/d HH:mm:ss.fff') + '  JMS:9-9:SUMMARISE:5:Baldrake Cavendell-LivingFlame') + "`r`n", $Utf8)
+    $before = @(Get-ChildItem $calls).Count
+    $out = & $runPlain ($T + 95300) 'yes' @('-SignalsFrom', "$from")
+    True 'a faulty overview is reported' ($out -match 'the overview has 1 fault; asking the AI once more')
+    Check 'a summary call, an overview call and one more overview call' (@(Get-ChildItem $calls).Count - $before) 3
+    $lastCall = Get-Content -Raw (Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Last 1).FullName
+    True 'the second call names the fault and holds the first reply' ($lastCall -match '# Correction' -and $lastCall -match 'the entries do not hold: Mordecai, Vandermeer' -and $lastCall -match 'Mordecai Vandermeer watched\.')
+    True 'the corrected overview is kept' ((Read-FileText (Join-Path $charDir 'overview.md')) -notmatch 'Mordecai')
+    True 'no fault is left' ($out -notmatch 'overview fault left')
 } finally {
+    Remove-Item Env:FAKE_CLAUDE_OVERVIEW_FAULT -ErrorAction SilentlyContinue
     Remove-Item Env:FAKE_CLAUDE_LOG -ErrorAction SilentlyContinue
     Remove-Item Env:FAKE_CLAUDE_INVENT -ErrorAction SilentlyContinue
     if ($failures -eq 0) { Remove-Item -Recurse -Force $tmp } else { Write-Host "Test files kept in $tmp" }

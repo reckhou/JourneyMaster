@@ -538,10 +538,28 @@ function Update-Overview($key) {
         if ($pick) { $pictures += [pscustomobject]@{ N = $n; Path = "screenshots/$($pick.Name)"; Caption = $pick.Caption } }
         $entries += [pscustomobject]@{ Title = $d.Title; Line = $d.Line; Body = (Get-OverviewEntryBody $d.Body $(if ($pick) { $pick.Name } else { '' }) $n) }
     }
-    $r = Invoke-Model (Get-OverviewRules -Continue:([bool]$previous)) (New-OverviewPrompt ([string]$c.Name) $entries $previous)
+    $rules = Get-OverviewRules -Continue:([bool]$previous)
+    $prompt = New-OverviewPrompt ([string]$c.Name) $entries $previous
+    $r = Invoke-Model $rules $prompt
     if ($r.is_error -or -not $r.result) { Say "the AI call failed: $($r.result)" 'Yellow'; return }
     $text = ConvertFrom-OverviewReply ([string]$r.result)
     if (-not $text) { Say "$key`: the AI wrote no overview" 'Yellow'; return }
+    # The overview is checked (a section for each session, no invented names or numbers, no talk about its sources).
+    # When it has faults the AI is asked once more, and the reply with fewer faults is kept. Session summaries are
+    # not checked.
+    $titles = @($entries | ForEach-Object { [string]$_.Title })
+    $faults = @(Test-Overview $text $titles $prompt)
+    if ($faults.Count -gt 0) {
+        Say "$key`: the overview has $($faults.Count) fault$(if ($faults.Count -ne 1) { 's' }); asking the AI once more" 'Yellow'
+        foreach ($f in $faults) { Dbg "overview fault: $f" }
+        $r2 = Invoke-Model $rules (New-OverviewCorrection $prompt $text $faults)
+        $text2 = if ($r2.is_error -or -not $r2.result) { '' } else { ConvertFrom-OverviewReply ([string]$r2.result) }
+        if ($text2) {
+            $faults2 = @(Test-Overview $text2 $titles $prompt)
+            if ($faults2.Count -le $faults.Count) { $text = $text2; $faults = $faults2 }
+        }
+        foreach ($f in $faults) { Say "$key`: overview fault left: $f" 'Yellow' }
+    }
     $text = Add-OverviewPictures $text $pictures $use.Count
     # A continuation holds only the sections for the new sessions: they go after the sections already written.
     if ($previous) { $text = $previous.Trim() + "`n`n" + $text }

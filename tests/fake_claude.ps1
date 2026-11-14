@@ -2,6 +2,8 @@
 # output form. The account is made only of words from the prompt's record, so it is grounded.
 # FAKE_CLAUDE_LOG: a folder; each call's arguments and prompt are saved there as call-<n>.txt.
 # FAKE_CLAUDE_INVENT=1: the first reply of each prompt (one without a "# Correction" section) names an invented person.
+# FAKE_CLAUDE_OVERVIEW_FAULT=1: the first reply to an overview prompt names an invented person; the reply to its
+# correction does not.
 # Kept ASCII-only.
 $utf8 = New-Object Text.UTF8Encoding $false
 $stdin = New-Object IO.StreamReader([Console]::OpenStandardInput(), $utf8)
@@ -32,6 +34,10 @@ foreach ($l in $lines) {
 }
 $body = $body.Trim()
 if ($env:FAKE_CLAUDE_INVENT -eq '1' -and $prompt -notmatch '# Correction') { $body += ' Zanzibar Quillfeather watched.' }
+# The record's own notes name the add-on and the chat log. A real overview must not talk about its sources, so the
+# stand-in's overview does not carry those words over.
+if ($isOverview) { $body = $body -replace 'the add-on', 'the game' -replace 'the chat log', 'the talk' }
+if ($env:FAKE_CLAUDE_OVERVIEW_FAULT -eq '1' -and $isOverview -and $prompt -notmatch '# Correction') { $body += ' Mordecai Vandermeer watched.' }
 if ($isOverview) { $text = $body } else { $text = "TITLE: Session record`n`n$body" }
 $result = @{ type = 'result'; is_error = $false; result = $text; total_cost_usd = 0 } | ConvertTo-Json -Compress
 $bytes = $utf8.GetBytes($result)

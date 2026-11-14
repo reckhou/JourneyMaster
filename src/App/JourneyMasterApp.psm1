@@ -1177,6 +1177,48 @@ You write the overview of a character's journey in World of Warcraft (the WoW: F
     $text
 }
 
+# The faults of an overview reply, as sentences; an empty list means it passed. Text: the overview (ConvertFrom-OverviewReply).
+# Titles: the titles of the entries it was written from, in order. Source: all the text the AI was given.
+# Checked: one section for each entry, headed with the entry's title, in order; no name or number the entries do not
+# hold; no talk about its sources (owner's decision, 14 November 2026: the app checks the overview and asks again once).
+function Test-Overview([string]$Text, [string[]]$Titles, [string]$Source) {
+    $faults = New-Object Collections.Generic.List[string]
+    $heads = @([regex]::Matches($Text, '(?m)^##[ \t]+(.+?)[ \t]*$') | ForEach-Object { $_.Groups[1].Value })
+    $Titles = @($Titles)
+    if ($heads.Count -ne $Titles.Count) {
+        $faults.Add("It has $($heads.Count) section$(if ($heads.Count -ne 1) { 's' }) for $($Titles.Count) entr$(if ($Titles.Count -ne 1) { 'ies' } else { 'y' }): write one section for each entry, in the order given, each headed with its entry's title.")
+    } else {
+        for ($i = 0; $i -lt $heads.Count; $i++) {
+            if ($heads[$i].Trim() -ne ([string]$Titles[$i]).Trim()) { $faults.Add("Section $($i + 1) is headed `"$($heads[$i])`": its heading must be the entry's title, `"$($Titles[$i])`".") }
+        }
+    }
+    $prose = [regex]::Replace($Text, $PictureMarker, '')
+    $invented = @(Test-Grounded $prose $Source)
+    if ($invented.Count -gt 0) { $faults.Add("It uses names or numbers that the entries do not hold: $($invented -join ', '). Take out each one that is a name or a number.") }
+    $meta = @(Test-SourceMentions $prose)
+    foreach ($m in [regex]::Matches($prose, '(?i)\b(?:the|this|these) (?:(?:previous|earlier|next|last|first) )?(?:entry|entries|chapters?)\b|\bsession files?\b')) {
+        $v = $m.Value.ToLowerInvariant()
+        if ($meta -notcontains $v) { $meta += $v }
+    }
+    if ($meta.Count -gt 0) { $faults.Add("It talks about its sources: $($meta -join ', '). Write about the events only.") }
+    $faults.ToArray()
+}
+
+# The prompt that asks for an overview again: the first prompt, the reply it got and the faults found in that reply.
+function New-OverviewCorrection([string]$Prompt, [string]$Reply, [string[]]$Faults) {
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.AppendLine($Prompt.TrimEnd())
+    [void]$sb.AppendLine()
+    [void]$sb.AppendLine('# Correction')
+    [void]$sb.AppendLine('Your first reply is below. It has these faults:')
+    foreach ($f in @($Faults)) { [void]$sb.AppendLine("- $f") }
+    [void]$sb.AppendLine('Write the whole reply again without these faults. Keep everything else as good as it was.')
+    [void]$sb.AppendLine('"""')
+    [void]$sb.AppendLine($Reply.Trim())
+    [void]$sb.AppendLine('"""')
+    $sb.ToString()
+}
+
 # The overview from the AI's reply: the text with its section headings (ConvertFrom-SummaryReply drops headings).
 function ConvertFrom-OverviewReply([string]$Text) {
     $Text = ($Text -replace "`r", '').Trim()
@@ -1243,7 +1285,7 @@ function Invoke-ClaudeCli([string]$ClaudePath, [string[]]$Arguments, [string]$Wo
     $result
 }
 
-Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Get-NumberWords, Test-Coverage, Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
+Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Get-NumberWords, Test-Overview, New-OverviewCorrection, Test-Coverage, Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
     Get-Field, Add-EventEntries, Read-EventEntries, Remove-SessionEvents, ConvertFrom-SessionChange, Get-SessionMap, Set-SessionTitle, Get-Sessions, Test-HasInstance, Test-SessionFinished, Test-SessionFinishedByPlayer, Get-SessionFacts,
     Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, ConvertFrom-SignalLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
     Format-Entry, Format-RecordLines, Get-ShotLabel, Add-AccountPictures, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
