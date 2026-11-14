@@ -165,7 +165,7 @@ Write-Host "Made-up journey: $($script:i) entries in 4 sessions, $($log.Count) c
 
 # Run the app --------------------------------------------------------------------------------------------------------------
 $appArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Root 'src\App\JourneyMaster.ps1'), '-WowDir', $Wow, '-DataDir', $AppData,
-    '-GameRunning', 'no', '-MaxPromptChars', $MaxPromptChars)
+    '-GameRunning', 'no', '-MaxPromptChars', $MaxPromptChars, '-SummariseAll')
 if ($Fake) { $appArgs += @('-ClaudePath', (Join-Path $Root 'tests\fake_claude.ps1')) } elseif ($ClaudePath) { $appArgs += @('-ClaudePath', $ClaudePath) }
 $sw = [Diagnostics.Stopwatch]::StartNew()
 & powershell @appArgs

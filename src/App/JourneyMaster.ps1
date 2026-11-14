@@ -6,15 +6,18 @@ JourneyMaster app: turns the add-on's record into a journal of AI-written sessio
 Each run (or each change of the add-on's saved file, with -Watch):
   1. Reads JourneyMaster.lua (the add-on's SavedVariables) and appends new entries to
      <DataDir>\journeys\<character>\events\<date>.jsonl, the permanent record.
-  2. Groups entries into play sessions and, for each finished session not yet summarised, fills its dungeon and raid
+  2. Groups entries into play sessions. It summarises nothing on its own: when the player clicks Summarise for a session
+     in the game (a signal, sent after the reload the button causes), the app fills the session's dungeon and raid
      windows from the game's chat log, has the AI write the summary (in parts for a very long session), and saves it as
      <DataDir>\journeys\<character>\sessions\<date>-<n>.md with its screenshots. A session file is never touched again.
+     With -SummariseAll the app summarises every finished session in one run instead (the old automatic way).
   3. Rewrites the journey overview (overview.md): a section for each session, with one of its screenshots.
   4. Writes JournalSnapshot.lua into the add-on's folder, with thumbnails of the newest sessions' screenshots; the game
      shows it at the next /reload or login.
-A session is finished at once when the player finishes it in the game, or once the game is closed and 30 minutes have
-passed since its last entry (a logout alone does not finish it; while the game runs, the record on disk may be stale). With -Watch the app also reads the add-on's signals from the end of the chat log every 2 seconds
-(Open screenshots, Finish session; see src\JourneyMaster\Signal.lua).
+-SummariseAll judges a session finished at once when the player finished it in the game, or once the game is closed and 30
+minutes have passed since its last entry (a logout alone does not finish it; while the game runs, the record on disk may be
+stale). With -Watch the app also reads the add-on's signals from the end of the chat log every 2 seconds (Open screenshots,
+Summarise, Finish session; see src\JourneyMaster\Signal.lua).
 Examples:
   powershell -NoProfile -ExecutionPolicy Bypass -File src\App\JourneyMaster.ps1
   powershell -NoProfile -ExecutionPolicy Bypass -File src\App\JourneyMaster.ps1 -Watch
@@ -35,6 +38,7 @@ param(
     [int]$MaxPromptChars = 60000, # a record longer than this is summarised in parts
     [int]$OverviewMaxBytes = 40000, # the part of the overview the game's snapshot holds
     [int]$OverviewMaxChars = 120000, # above this the overview is updated from the previous one and the new sessions
+    [switch]$SummariseAll,     # summarise every finished session in this run (nothing is summarised otherwise, but on the game's Summarise button)
     [switch]$Watch,
     [int]$PollSeconds = 15,
     [long]$Restore = 0,        # only put deleted session <n> back (of -Character, when more than one has it), then stop
@@ -322,7 +326,8 @@ function Invoke-Signal($Sig) {
             $done = if ($Sig.Kind -eq 'TITLE') { Rename-Session $Sig.Key $c $ch.S $ch.T $ch.Title } else { Remove-Session $Sig.Key $c $ch.S $ch.T }
             if ($done) { Publish-Snapshot }
         }
-        'END' { Say "$($Sig.Key)`: session $($Sig.S) finished in the game; it is summarised once the game writes the record (at /reload or logout)" 'Cyan' }
+        'END' { Say "$($Sig.Key)`: session $($Sig.S) finished in the game; summarise it with the Summarise button" 'Cyan' }
+        'SUMMARISE' { Invoke-SummariseRequest $Sig.Key $Sig.S }
         default { Dbg "unknown signal $($Sig.Kind)" }
     }
 }
@@ -474,6 +479,28 @@ function Update-Summaries {
     $updated
 }
 
+# The game's Summarise button: the add-on sends this signal at the login after its reload, so the saved file now holds the
+# session as it was when the player clicked. Summarises that one session (finished or not), then the overview and the
+# snapshot. Anything the player recorded after the reload is kept in events\ but is not in the summary.
+function Invoke-SummariseRequest([string]$key, [long]$Number) {
+    $sv = Find-SavedVariables
+    if (-not $sv -or -not (Test-Path -LiteralPath $sv)) { Say "$key`: asked to summarise session $Number, but there is no saved file yet" 'Yellow'; return }
+    Import-SavedVariables $sv
+    Save-State
+    $c = $State.Characters[$key]
+    if ($c.Sessions.ContainsKey("$Number")) { Say "$key`: session $Number is already summarised" 'Yellow'; return }
+    $session = @(Get-Sessions (Read-EventEntries (Join-Path (Get-CharDir $c) 'events')) | Where-Object { [long]$_.S -eq $Number })
+    if ($session.Count -eq 0) { Say "$key`: asked to summarise session $Number, which the saved file does not hold (deleted, or the game has not written it)" 'Yellow'; return }
+    Say "$key`: summarising session $Number, as asked in the game (this takes a minute or more)" 'Cyan'
+    Use-AISettings $c
+    if (Invoke-SessionSummary $key $c $session[0]) {
+        Save-State
+        if (-not $NoOverview) { Update-Overview $key }
+        Publish-Snapshot
+    }
+    Save-State
+}
+
 # Step 3: overview and export ---------------------------------------------------------------------------------------------
 
 function Get-SessionDocs($c) {
@@ -618,18 +645,18 @@ function Invoke-Once {
     Dbg "saved file: $sv"
     Import-SavedVariables $sv
     Save-State
-    $updated = @(Update-Summaries)
+    $updated = @(if ($SummariseAll) { Update-Summaries })
     foreach ($key in $updated) {
         Use-AISettings $State.Characters[$key]
         if (-not $NoOverview) { Update-Overview $key }
-        }
+    }
     # Session files or the overview edited (or deleted) on the PC: the game's snapshot follows.
     foreach ($key in @($State.Characters.Keys)) {
         $c = $State.Characters[$key]
         $stamp = Get-FilesStamp $c
         if ($c.ContainsKey('FilesStamp') -and [string]$c.FilesStamp -ne $stamp -and $updated -notcontains $key) {
             Say "$key`: session files changed on the PC; the game's snapshot follows" 'Cyan'
-                    $script:Changed = $true
+            $script:Changed = $true
         }
         $c.FilesStamp = $stamp
     }

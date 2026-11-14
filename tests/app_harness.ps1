@@ -374,7 +374,11 @@ JourneyMasterOther = nil
     )
     $char = [ordered]@{ name = 'Baldrake Cavendell'; realm = 'Living Flame'; race = 'Human'; class = 'Warlock'; faction = 'Alliance'; level = 27; seq = 11; dropped = 0; entries = @($session1 + $session2); settings = @{ aiModel = 'opus'; aiEffort = 'low' } }
     Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    # $run summarises every finished session (-SummariseAll, as the app did on its own); $runPlain is the app's normal run,
+    # which summarises only on the game's Summarise signal.
     $run = { param([long]$Now, [string]$Running = 'no', [string[]]$More = @())
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $App -WowDir $wow -DataDir $data -ClaudePath $Fake -GameRunning $Running -Now $Now -LoreDir (Join-Path $tmp 'nolore') -NoExplorer -SummariseAll @More 2>&1 | Out-String }
+    $runPlain = { param([long]$Now, [string]$Running = 'no', [string[]]$More = @())
         & powershell -NoProfile -ExecutionPolicy Bypass -File $App -WowDir $wow -DataDir $data -ClaudePath $Fake -GameRunning $Running -Now $Now -LoreDir (Join-Path $tmp 'nolore') -NoExplorer @More 2>&1 | Out-String }
 
     # The game is still running: the first session (logged out, then a later session) is summarised; the dungeon session
@@ -507,6 +511,25 @@ JourneyMasterOther = nil
     Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
     $out = & $run ($T + 9300) 'yes'
     True 'late entries for a summarised session reported' ($out -match '1 entries arrived after session 3 was summarised')
+
+    # Nothing is summarised on its own: session 4 (logged in, game closed long ago) waits for the game's Summarise button,
+    # which reaches the app as a SUMMARISE signal.
+    $sessionsBefore = @(Get-ChildItem (Join-Path $charDir 'sessions')).Count
+    $before = @(Get-ChildItem $calls).Count
+    $out = & $runPlain ($T + 90000) 'no'
+    Check 'a plain run summarises nothing' @(Get-ChildItem (Join-Path $charDir 'sessions')).Count $sessionsBefore
+    Check 'a plain run calls no AI' @(Get-ChildItem $calls).Count $before
+    $from = (Get-Item $gameLog).Length
+    $stampNow = (ConvertFrom-Epoch ($T + 90100)).ToString('M/d HH:mm:ss.fff') + '  '
+    [IO.File]::AppendAllText($gameLog, (@(($stampNow + 'JMS:9-7:SUMMARISE:99:Baldrake Cavendell-LivingFlame'), ($stampNow + 'JMS:9-8:SUMMARISE:4:Baldrake Cavendell-LivingFlame')) -join "`r`n") + "`r`n", $Utf8)
+    $out = & $runPlain ($T + 90200) 'yes' @('-SignalsFrom', "$from")
+    True 'a request for a session the file does not hold is reported' ($out -match 'session 99, which the saved file does not hold')
+    True 'the requested session is summarised' ($out -match 'summarising session 4, as asked in the game' -and $out -match 'summarised session 4')
+    Check 'the requested session has its file' @(Get-ChildItem (Join-Path $charDir 'sessions')).Count ($sessionsBefore + 1)
+    Check 'one summary call and one overview call for it' (@(Get-ChildItem $calls).Count - $before) 2
+    $out = & $runPlain ($T + 90300) 'yes' @('-SignalsFrom', "$from")
+    True 'a repeated request is answered without a summary' ($out -match 'session 4 is already summarised')
+    Check 'and calls no AI' (@(Get-ChildItem $calls).Count - $before) 2
 } finally {
     Remove-Item Env:FAKE_CLAUDE_LOG -ErrorAction SilentlyContinue
     Remove-Item Env:FAKE_CLAUDE_INVENT -ErrorAction SilentlyContinue

@@ -543,6 +543,47 @@ tick(5)
 ns.Command("note after another reload")
 eq(c.session, sNow + 3, "a session the app has not summarised continues after a login")
 
+-- The Summarise button: asks the app for a pending session's summary, ends nothing, reloads, and the signal goes out at the
+-- next login. The app summarises nothing on its own.
+local KEY0 = "Baldrake Cavendell-LivingFlame"
+local sPend = c.session
+local entriesBefore = #c.entries
+local reloadsBefore = W.reloads
+W.system = {}
+ns.Window.Show()
+ns.Window.Select(sPend)
+ns.Window.Summarise()
+check(not c.endSession, "Summarise does not end the session")
+eq(#c.entries, entriesBefore, "Summarise records no end entry")
+eq(W.reloads, reloadsBefore + 1, "Summarise reloads the interface")
+W.reloads = reloadsBefore -- the reload prompt test below counts its own
+check(c.summaryRequests and c.summaryRequests[sPend] and c.summaryRequests[sPend].sent == false, "the request is noted, not sent yet")
+local function pendingItem()
+    ns.Window.Refresh()
+    for _, it in ipairs(ns.Window.State().items) do if it.s == sPend then return it end end
+end
+check(pendingItem().requested, "the session shows as requested")
+ns.Signal.SendSummaryRequests()
+W.RunSignalTickers()
+local sentLines = {}
+for _, line in ipairs(W.system) do if line:find("^JMS:") then sentLines[#sentLines + 1] = line end end
+eq(#sentLines, 1, "one signal sent")
+check(sentLines[1] and sentLines[1]:find(":SUMMARISE:" .. sPend .. ":", 1, true), "the summary request is signalled to the app")
+eq(c.summaryRequests[sPend].sent, true, "the request is marked sent")
+W.system = {}
+ns.Signal.SendSummaryRequests()
+W.RunSignalTickers()
+eq(#W.system, 0, "a request is not sent twice")
+tick(601)
+check(not pendingItem().requested, "the Summarise button comes back after ten minutes")
+-- A request the snapshot answers is dropped at the next login.
+local snapSess0 = ns.journalSnapshot.characters[KEY0].sessions
+snapSess0[#snapSess0 + 1] = { s = sPend, title = "Summarised", first = W.now, last = W.now, zones = {} }
+fire("PLAYER_LOGIN")
+check(c.summaryRequests[sPend] == nil, "a request the app has answered is dropped at login")
+table.remove(snapSess0)
+eq(select(2, ns.Signal.RequestSummary(999999)), "nothing recorded in this session yet.", "nothing to summarise: no request")
+
 -- Renaming and deleting sessions --------------------------------------------------------------------------------------------
 local KEY = "Baldrake Cavendell-LivingFlame"
 local snapChar = ns.journalSnapshot.characters[KEY]

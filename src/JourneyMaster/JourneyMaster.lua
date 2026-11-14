@@ -111,7 +111,11 @@ function ns.OnLogin()
         if (c.session or 0) > 0 and (ns.Journal.IsSummarised(key, c.session) or ns.Journal.IsDeleted(c, snapChar, c.session)) then
             c.endSession = true
         end
-        Core.PruneChanges(c, snapChar)
+        Core.PruneChanges(c, snapChar, time())
+        -- Summaries asked for with the Summarise button: the reload has written the record, so the app is told now, after a
+        -- few seconds for the game to settle.
+        if C_Timer and C_Timer.After then C_Timer.After(8, Rec.Guard("the summary requests", ns.Signal.SendSummaryRequests))
+        else Rec.Try("the summary requests", ns.Signal.SendSummaryRequests) end
     end
     ns.Minimap.Create()
     if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(300, Rec.Guard("the reload prompt", maybeOfferReload)) end

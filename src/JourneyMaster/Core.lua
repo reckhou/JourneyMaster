@@ -596,12 +596,32 @@ function Core.DeleteSession(c, s, now)
     return ("%d=%d"):format(s, now)
 end
 
+-- Asking the app to summarise a session (the window's Summarise button): c.summaryRequests[s] = { t = time of the click,
+-- sent = whether the app was told }. The app can only read the record after the reload the button causes, so the signal
+-- goes out at the next login. The window shows a request as pending for SUMMARY_WAIT seconds, then offers the button again.
+Core.SUMMARY_WAIT = 600
+Core.SUMMARY_KEEP = 86400 -- a request older than this (a day) is dropped
+
+function Core.RequestSummary(c, s, now)
+    c.summaryRequests = c.summaryRequests or {}
+    c.summaryRequests[s] = { t = now, sent = false }
+end
+
+function Core.SummaryRequested(c, s, now)
+    local r = c and c.summaryRequests and c.summaryRequests[s]
+    return r ~= nil and (now - (r.t or 0)) < Core.SUMMARY_WAIT
+end
+
 -- Drops the changes the snapshot says the app has handled (snapChar: the character's part of the snapshot, or nil).
 -- A rename of a session the snapshot does not list yet is kept: the game has no other place to show it.
-function Core.PruneChanges(c, snapChar)
+function Core.PruneChanges(c, snapChar, now)
+    for s, r in pairs(c.summaryRequests or {}) do
+        if (now or 0) - (r.t or 0) > Core.SUMMARY_KEEP then c.summaryRequests[s] = nil end
+    end
     if not snapChar then return end
     local listed = {}
     for _, sess in ipairs(snapChar.sessions or {}) do listed[sess.s] = true end
+    for s in pairs(c.summaryRequests or {}) do if listed[s] then c.summaryRequests[s] = nil end end
     for s, t in pairs(c.deleted or {}) do
         if (snapChar.seenDelete and snapChar.seenDelete[s] or 0) >= t then c.deleted[s] = nil end
     end

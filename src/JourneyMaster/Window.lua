@@ -133,8 +133,8 @@ local function isCurrent(item)
     return item and c and item.state == "pending" and item.s == c.session and not c.endSession or false
 end
 
--- The foot: the counts on the left, then the buttons from the right: reload, then Finish session and Open
--- screenshots when they apply to the chosen session.
+-- The foot: the counts on the left, then the buttons from the right: Summarise for a session not summarised yet (it takes
+-- the place of Reload), else Reload; then Finish session, Open screenshots, Delete and Rename when they apply.
 local function showFooter()
     local c = rec().Char()
     local n = c and #c.entries or 0
@@ -144,7 +144,10 @@ local function showFooter()
     local finish = perSession and isCurrent(item)
     local shots = perSession and hasShots(item)
     local edit = perSession and item ~= nil
-    local anchor = footer.reload
+    local summarise = perSession and item ~= nil and item.state == "pending" and not item.requested and (item.entries or 0) > 0
+    footer.summarise:SetShown(summarise)
+    footer.reload:SetShown(not summarise)
+    local anchor = summarise and footer.summarise or footer.reload
     for _, b in ipairs({ { footer.finish, finish }, { footer.shots, shots }, { footer.delete, edit }, { footer.rename, edit } }) do
         b[1]:SetShown(b[2])
         if b[2] then b[1]:SetPoint("RIGHT", anchor, "LEFT", -6, 0) anchor = b[1] end
@@ -163,6 +166,18 @@ local function requestShots()
     end
 end
 Window.RequestShots = requestShots
+
+-- The Summarise button: the app summarises nothing on its own. This notes the request (it does not end the session) and
+-- reloads the interface, so the game writes the record to disk; the signal to the app follows at login.
+local function summarise()
+    local item = currentItem()
+    if not item then return end
+    local ok, why = ns.Signal.RequestSummary(item.s)
+    if not ok then ns.Say(why) return end
+    ns.Say("asked the app on your PC to summarise this session. Reloading so the game writes the record to disk; the app must be running. Reload again when the app has finished.")
+    if ReloadUI then ReloadUI() end
+end
+Window.Summarise = summarise
 
 local function finishSession()
     local ok, why = ns.Signal.FinishSession()
@@ -474,6 +489,12 @@ local function create()
     footer.reload:SetPoint("RIGHT", -10, -1)
     UI.Tooltip(footer.reload, "Reload the interface",
         "Loads the newest summaries from the app on your PC. The game also writes the record to disk, so the app can summarise it.")
+    footer.summarise = UI.FlatButton(footer, "Summarise", "GameFontNormalSmall", C.button, C.buttonEdge, C.gold, 12, 20)
+    footer.summarise:SetScript("OnClick", summarise)
+    footer.summarise:SetPoint("RIGHT", -10, -1)
+    footer.summarise:Hide()
+    UI.Tooltip(footer.summarise, "Summarise this session",
+        "The app on your PC writes this session's summary from what is recorded so far. Nothing is summarised on its own. This reloads the interface, so the game writes the record to disk, and does not end the session. What you record after the reload is not in the summary. The app must be running (it can stay in the background). Reload again when the app has finished, to see the summary.")
     footer.shots = UI.FlatButton(footer, "Open screenshots", "GameFontNormalSmall", C.raised, C.edge, C.soft, 10, 20)
     footer.shots:SetScript("OnClick", requestShots)
     footer.shots:Hide()

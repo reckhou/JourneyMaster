@@ -1,4 +1,5 @@
--- JourneyMaster signals to the app, with no reload: "open this session's screenshots" and "this session is finished".
+-- JourneyMaster signals to the app, with no reload: "open this session's screenshots", "this session is finished" and
+-- "summarise this session" (sent at the login after the Summarise button's reload).
 -- A signal is a hidden system line in the chat log, followed by about 48 KiB of hidden padding, which makes the game
 -- write WoWChatLog.txt to disk about a second later; the app watches the end of that file. The method and the code
 -- that hides the lines come from RPMaster (its ADR 0001, "text capture through the padded chat log", and writeToLog).
@@ -136,9 +137,38 @@ function Signal.DeleteSession(s)
     return true
 end
 
+-- The Summarise button: notes the request. It does not end the session (ending is the Finish session button, which also
+-- starts a new session). The caller then reloads the interface, which makes the game write the record to disk;
+-- SendSummaryRequests tells the app at the next login. Returns false and the reason when there is nothing to summarise.
+function Signal.RequestSummary(s)
+    local c = rec().Char()
+    if not c then return false, "no character loaded yet." end
+    if #Core.SessionEntries(c.entries or {}, s) == 0 then return false, "nothing recorded in this session yet." end
+    Core.RequestSummary(c, s, time())
+    return true
+end
+
+-- Tells the app about each summary requested and not sent yet (called a few seconds after login, when the record the app
+-- reads is the one the game wrote at the reload). A request the snapshot already answers is dropped at login.
+function Signal.SendSummaryRequests()
+    local c = rec().Char()
+    if not c then return end
+    local key = Core.CharKey(c.name, c.realm)
+    local list = {}
+    for s, r in pairs(c.summaryRequests or {}) do
+        if not r.sent and not ns.Journal.IsSummarised(key, s) then list[#list + 1] = s end
+    end
+    table.sort(list)
+    for _, s in ipairs(list) do
+        c.summaryRequests[s].sent = true
+        if not Signal.Send("SUMMARISE", s) then c.summaryRequests[s].sent = false end
+    end
+end
+
 -- Finishing the session (/jm end, or the window's Finish session button): an "end" entry closes it, the next entry
 -- starts a new one, and a signal tells the app. The app summarises the session once the game has written the record
--- to disk, so the player is then offered a reload. Returns false and the reason when there is nothing to finish.
+-- to disk, so the player is then offered a reload (the app summarises only on the Summarise button). Returns false
+-- and the reason when there is nothing to finish.
 function Signal.FinishSession()
     local c = rec().Char()
     if not c or #Core.SessionEntries(c.entries or {}, c.session) == 0 then return false, "nothing recorded in this session yet." end
@@ -148,7 +178,7 @@ function Signal.FinishSession()
     Signal.Send("END", s, function()
         if StaticPopupDialogs and StaticPopup_Show then
             StaticPopupDialogs.JOURNEYMASTER_FINISHED = StaticPopupDialogs.JOURNEYMASTER_FINISHED or {
-                text = "JourneyMaster: session finished. Reload the interface now? The game then writes the record to disk, and the app on your PC summarises the session.",
+                text = "JourneyMaster: session finished. Use the Summarise button when you want its summary. Reload the interface now? The game then writes the record to disk.",
                 button1 = "Reload", button2 = "Later",
                 OnAccept = function() ReloadUI() end,
                 timeout = 0, whileDead = true, hideOnEscape = true,
