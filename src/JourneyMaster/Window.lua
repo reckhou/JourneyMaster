@@ -1,6 +1,7 @@
 -- JourneyMaster window (mock-up revision B in docs/mockups/journey-window.html): two panes, about 700 by 500 pixels.
--- A session list on the left drives the reader on the right; the Journal, Log and Settings tabs run along the top.
--- Journal shows a session's summary, Log its raw entries with one on/off chip per kind, Settings the switches.
+-- A session list on the left drives the reader on the right; the Journal, Overview, Log and Settings tabs run along the top.
+-- Journal shows a session's summary, Overview the journey so far (the whole width, no session list), Log its raw
+-- entries with one on/off chip per kind, Settings the switches.
 -- The frame, tabs, list, chips and Log lines use the mock-up's colours (UI.C and Core.KINDS), drawn with plain
 -- textures rather than the game's frame templates.
 -- The foot shows the entries recorded, the date of the last summary and a button that reloads the interface, which
@@ -18,7 +19,7 @@ local BODY_TOP = EDGE + TITLE_H + 6 + TABS_H + 2 -- title bar, gap, tabs, the li
 local READER_PAD = 10     -- space round the reader's text and chips
 local CHIP_H, CHIP_GAP = 18, 4
 local C = UI.C
-local TABS = { { "journal", "Journal" }, { "log", "Log" }, { "settings", "Settings" } }
+local TABS = { { "journal", "Journal" }, { "overview", "Overview" }, { "log", "Log" }, { "settings", "Settings" } }
 
 local win
 local tab = "journal"
@@ -49,7 +50,9 @@ local function showReader()
     local item = currentItem()
     local key = charKey()
     local blocks
-    if not item then
+    if tab == "overview" then
+        blocks = Journal.OverviewBlocks(rec().Char(), key)
+    elseif not item then
         blocks = { { text = "Nothing recorded yet. Play on: the journal fills itself." } }
     elseif tab == "log" then
         local c = rec().Char()
@@ -137,9 +140,10 @@ local function showFooter()
     local n = c and #c.entries or 0
     footer.text:SetText(n .. " entries \194\183 last summary " .. (Journal.LastSummaryDate() or "none yet"))
     local item = currentItem()
-    local finish = tab ~= "settings" and isCurrent(item)
-    local shots = tab ~= "settings" and hasShots(item)
-    local edit = tab ~= "settings" and item ~= nil
+    local perSession = tab == "journal" or tab == "log" -- Settings and Overview are about no one session
+    local finish = perSession and isCurrent(item)
+    local shots = perSession and hasShots(item)
+    local edit = perSession and item ~= nil
     local anchor = footer.reload
     for _, b in ipairs({ { footer.finish, finish }, { footer.shots, shots }, { footer.delete, edit }, { footer.rename, edit } }) do
         b[1]:SetShown(b[2])
@@ -333,6 +337,9 @@ local function selectTab(name)
     win.sessions:SetShown(name ~= "settings")
     win.settings:SetShown(name == "settings")
     win.chipBar:SetShown(name == "log")
+    -- Overview: no session list, the reader takes the whole width.
+    win.listPane:SetShown(name ~= "overview")
+    reader.pane:SetPoint("TOPLEFT", win.sessions, "TOPLEFT", name == "overview" and 0 or LIST_WIDTH + 2, 0)
     reader.area.frame:SetPoint("TOPLEFT", reader.pane, "TOPLEFT", 0, name == "log" and -win.chipBar.used or 0)
     Window.Refresh()
 end
@@ -420,6 +427,7 @@ local function create()
     body:SetPoint("BOTTOMRIGHT", -EDGE, EDGE + FOOT_H)
     win.sessions = body
     local listPane = CreateFrame("Frame", nil, body)
+    win.listPane = listPane
     listPane:SetPoint("TOPLEFT", 0, 0)
     listPane:SetPoint("BOTTOMLEFT", 0, 0)
     listPane:SetWidth(LIST_WIDTH + 2)

@@ -17,6 +17,8 @@ $inRecord = $false
 foreach ($l in ($prompt -replace "`r", '') -split "`n") {
     if ($l -match '^# Record' -or $l -match '^# Entries' -or $l -match '^# New entries') { $inRecord = $true; continue }
     if ($l -match '^# Correction') { break }
+    # An overview has a section for each entry, headed by the entry's title (without the line in brackets).
+    if ($inRecord -and $isOverview -and $l -match '^## (.+?) \(.*\)$') { $lines += "SECTION:$($Matches[1])"; continue }
     if ($inRecord -and $l.Trim() -and $l -notmatch '^#') {
         $l = $l -replace '^\d\d:\d\d ', ''
         # A picture line becomes its marker, as the narrator rules ask.
@@ -24,7 +26,11 @@ foreach ($l in ($prompt -replace "`r", '') -split "`n") {
         $lines += $l
     }
 }
-$body = $lines -join " "
+$body = ''
+foreach ($l in $lines) {
+    if ($l -match '^SECTION:(.*)$') { $body = $body.TrimEnd() + "`n`n## $($Matches[1])`n`n" } else { $body += $l + ' ' }
+}
+$body = $body.Trim()
 if ($env:FAKE_CLAUDE_INVENT -eq '1' -and $prompt -notmatch '# Correction') { $body += ' Zanzibar Quillfeather watched.' }
 if ($isOverview) { $text = $body } else { $text = "TITLE: Session record`n`n$body" }
 $result = @{ type = 'result'; is_error = $false; result = $text; total_cost_usd = 0 } | ConvertTo-Json -Compress

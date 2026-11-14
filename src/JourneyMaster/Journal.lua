@@ -178,6 +178,23 @@ function Journal.JournalBlocks(key, item)
     return blocks
 end
 
+-- The Overview tab's blocks: the journey so far, from the app's overview (the snapshot's overview text: one section
+-- for each session, headed by its title), or a note when the app has not written one yet.
+function Journal.OverviewBlocks(c, key)
+    local snapChar = Journal.SnapChar(key)
+    local name = c and c.name or "?"
+    local blocks = { { text = GOLD .. "The journey of " .. tostring(name) .. " so far|r", font = "GameFontNormalLarge" } }
+    local text = snapChar and snapChar.overview
+    if text and text ~= "" then
+        for _, b in ipairs(Journal.Blocks(text, nil)) do blocks[#blocks + 1] = b end
+    else
+        blocks[#blocks + 1] = { gap = 8, text = "No overview yet." }
+        blocks[#blocks + 1] = { gap = 4, text = GREY .. "The JourneyMaster app on your PC writes the overview after it summarises a session. "
+            .. "It shows here at your next /reload or login.|r" }
+    end
+    return blocks
+end
+
 local LOG_CHUNK = 40 -- Log lines per text block
 
 -- The Log tab's blocks for a session: its entries that pass the filter, one line each with the time.

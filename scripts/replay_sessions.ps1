@@ -197,7 +197,7 @@ foreach ($s in $sessions) {
     if (-not $ok) { $failed++ }
     $report.Add("| $($s.S) | $($doc.Title) | $($info.Parts) | $(if ($invented) { $invented -join ', ' } else { 'none' }) | $(if ($lost) { $lost -join '; ' } else { 'none' }) | $(if ($meta) { $meta -join ', ' } else { 'none' }) | $(if ($ok) { 'pass' } else { 'FAIL' }) |")
 }
-# Phase 5: the screenshot is linked from its session, the overview invents nothing, and the export holds every session.
+# Phase 5: the screenshot is linked from its session, the overview invents nothing, and the export holds the overview with a heading for every session.
 $docs = @(Get-ChildItem (Join-Path $charDir 'sessions') -Filter '*.md' | Sort-Object Name | ForEach-Object { Read-SessionMarkdown (Read-FileText $_.FullName) })
 $extras = @()
 if (-not ($docs[0].Body -match '!\[Level up, \d\d:\d\d\]\(\.\./screenshots/[^)]+-level\.jpg\)')) { $extras += 'the level-up screenshot is not linked from session 1' }
@@ -216,8 +216,7 @@ $journalPath = Join-Path $charDir 'journal.md'
 if (Test-Path -LiteralPath $journalPath) {
     $j = Read-FileText $journalPath
     foreach ($d in $docs) { if (-not $j.Contains("## $($d.Title)")) { $extras += "the export lacks '$($d.Title)'" } }
-    if (-not ($j -match '\]\(screenshots/')) { $extras += 'the export does not link the screenshot from the character folder' }
-    $report.Add("Export: journal.md with $($docs.Count) sessions$(if ($j -match '## Overview') { ' and the overview' }).")
+    $report.Add("Export: journal.md, the overview with $([regex]::Matches($j, '(?m)^## ').Count) session headings for $($docs.Count) sessions.")
 } else { $extras += 'no export was written' }
 foreach ($x in $extras) { $report.Add("FAIL: $x."); $failed++ }
 

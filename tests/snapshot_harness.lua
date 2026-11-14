@@ -58,6 +58,14 @@ check(l:find("trimmed", 1, true) ~= nil, "trimmed session's Log says where the r
 local l3 = texts(Journal.LogBlocks(KEY, items[1], Core.SessionEntries(c.entries, items[1].s), nil))
 check(l3:find("Note: Back again", 1, true) ~= nil, "pending session's Log shows its entries")
 
+-- The Overview tab: the journey so far from the snapshot, with a section for each session.
+local ov = Journal.OverviewBlocks(c, KEY)
+local ovText = texts(ov)
+check(ovText:find("The journey of Baldrake Cavendell so far", 1, true) ~= nil, "overview has its title")
+check(ovText:find("Worgen in the Woods", 1, true) ~= nil and ovText:find("Older chapter", 1, true) ~= nil, "overview shows a heading for each session")
+check(ovText:find("Baldrake came out into Darkshire at dusk.", 1, true) ~= nil, "overview text shown")
+check(texts(Journal.OverviewBlocks(c, "nobody-Nowhere")):find("No overview yet.", 1, true) ~= nil, "no overview: says so")
+
 -- The window: the same session is selected under both tabs.
 ns.Window.Show()
 ns.Window.Select(2)
@@ -66,6 +74,10 @@ ns.Window.SelectTab("log")
 eq(ns.Window.State().selected, 2, "same session under the Log tab")
 ns.Window.SelectTab("journal")
 eq(ns.Window.State().selected, 2, "and back under the Journal tab")
+ns.Window.SelectTab("overview")
+eq(ns.Window.State().tab, "overview", "Overview tab opens")
+eq(ns.Window.State().selected, 2, "the Overview tab keeps the chosen session for the other tabs")
+ns.Window.SelectTab("journal")
 check(ns.Minimap.Summary():find("Last summary: " .. os.date("%d %b %Y", 1794533300), 1, true) ~= nil, "tooltip shows the last summary date")
 
 if fails > 0 then error(fails .. " snapshot checks failed") end

@@ -34,6 +34,7 @@ param(
     [string]$Effort = 'low',   # default effort level, likewise
     [int]$FullSessions = 10,   # newest sessions whose summary text goes into the snapshot; older ones by title only
     [int]$MaxPromptChars = 60000, # a record longer than this is summarised in parts
+    [int]$OverviewMaxBytes = 40000, # the part of the overview the game's snapshot holds
     [int]$OverviewMaxChars = 120000, # above this the overview is updated from the previous one and the new sessions
     [switch]$Watch,
     [int]$PollSeconds = 15,
@@ -504,9 +505,13 @@ function Update-Overview($key) {
         $since = [long]$c['OverviewUpTo']
         $use = @($docs | Where-Object { [long]$_.S.Last -gt $since })
     }
-    $reply = Get-Reply (Get-OverviewRules) (New-OverviewPrompt ([string]$c.Name) $use $previous)
-    if (-not $reply) { return }
-    $text = (($reply.Title, $reply.Body) | Where-Object { $_ }) -join "`n`n"
+    if ($previous -and $use.Count -eq 0) { return }
+    $r = Invoke-Model (Get-OverviewRules -Continue:([bool]$previous)) (New-OverviewPrompt ([string]$c.Name) $use $previous)
+    if ($r.is_error -or -not $r.result) { Say "the AI call failed: $($r.result)" 'Yellow'; return }
+    $text = ConvertFrom-OverviewReply ([string]$r.result)
+    if (-not $text) { Say "$key`: the AI wrote no overview" 'Yellow'; return }
+    # A continuation holds only the sections for the new sessions: they go after the sections already written.
+    if ($previous) { $text = $previous.Trim() + "`n`n" + $text }
     $from = (ConvertFrom-Epoch $docs[0].S.First).ToString('d MMMM yyyy')
     $to = (ConvertFrom-Epoch $docs[-1].S.Last).ToString('d MMMM yyyy')
     $span = "$($docs.Count) session$(if ($docs.Count -ne 1) { 's' }), " + $(if ($from -eq $to) { $from } else { "$from to $to" })
@@ -522,6 +527,12 @@ function Get-FilesStamp($c) {
     (@($files | Sort-Object Name | ForEach-Object { "$($_.Name):$($_.LastWriteTimeUtc.Ticks)" }) -join '|')
 }
 
+# The text of a character's overview.md (without its title and its line of dates), or '' when there is none.
+function Get-OverviewText($c) {
+    $path = Join-Path (Get-CharDir $c) 'overview.md'
+    if (Test-Path -LiteralPath $path) { (Read-SessionMarkdown (Read-FileText $path)).Body } else { '' }
+}
+
 function Write-Export($key) {
     $c = $State.Characters[$key]
     $docs = @(Get-SessionDocs $c)
@@ -531,9 +542,8 @@ function Write-Export($key) {
         if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old }
         return
     }
-    $overviewPath = Join-Path (Get-CharDir $c) 'overview.md'
-    $overview = if (Test-Path -LiteralPath $overviewPath) { (Read-SessionMarkdown (Read-FileText $overviewPath)).Body } else { '' }
-    Write-FileAtomic (Join-Path (Get-CharDir $c) 'journal.md') (New-JournalExport ([string]$c.Name) $overview $docs)
+    $overview = Get-OverviewText $c
+    Write-FileAtomic (Join-Path (Get-CharDir $c) 'journal.md') (New-JournalExport ([string]$c.Name) $overview)
     Dbg "$key`: journal.md written"
 }
 
@@ -583,7 +593,7 @@ function Publish-Snapshot {
                 File = $rel; Text = $(if ($full) { Get-SnapshotText $d.Body } else { $null })
                 Shots = $(if ($full) { @(Get-Thumbnails $c $d.Body) } else { @() }) }
         }
-        [pscustomobject]@{ Key = $key; Confirmed = [long]$c.LastSeq; Sessions = @($sessions)
+        [pscustomobject]@{ Key = $key; Confirmed = [long]$c.LastSeq; Overview = (Get-SnapshotText (Get-OverviewText $c) $OverviewMaxBytes); Sessions = @($sessions)
             Deleted = @($c.Deleted.Keys | ForEach-Object { [long]$_ }); SeenTitle = $c.SeenTitles; SeenDelete = $c.SeenDeleted }
     }
     Remove-UnusedThumbnails

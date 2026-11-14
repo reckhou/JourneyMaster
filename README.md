@@ -36,7 +36,7 @@ Every character gets the same narrator, who writes each session like a chapter o
 4. **When a session ends**, the app has the AI write its summary as `data\journeys\<character>\sessions\<date>-<n>.md`. In dungeons and raids the game hides chat from add-ons, so the app fills those stretches from the game's own chat log, `Logs\WoWChatLog.txt`. The add-on turns chat logging on for this. A session file is never changed again once written, so you may edit it.
 
    The app summarises a session when you finish it with **Finish session** (or `/jm end`) and reload, or once the game is closed and 30 minutes have passed since you last played. Logging out and back in within 30 minutes, even after closing the game, keeps the same session. While the game is running, the app never decides a session is over by itself: the record on disk is only as new as your last `/reload` or logout, so it cannot tell whether you are still playing. A session you leave by switching character is summarised when you close the game, or finish it before switching. Each character has its own sessions.
-5. **The app also writes** `overview.md` (the journey so far) and `journal.md` (the whole journal in one document), and gives the game a new snapshot of the summaries.
+5. **The app also writes** `overview.md` (the journey so far, with a section headed by the title of each session) and `journal.md` (that overview under a title), and gives the game a new snapshot of the summaries and the overview. The game's Overview tab shows the overview.
 6. **At your next `/reload` or login**, the summaries appear in the game.
 
 ## In the game
@@ -63,8 +63,8 @@ Everything stays under `data\` in this folder. Git ignores it.
 | `sessions\<date>-<n>.md` | One summary per play session |
 | `records\<date>-<n>.txt` | The exact record the AI was given for that session, so you can check a summary against it |
 | `screenshots\` | The milestone screenshots, linked from their sessions. Their thumbnails for the game are in the add-on's `Thumbs\` folder; the app deletes the ones no recent session uses |
-| `overview.md` | The journey so far |
-| `journal.md` | The whole journal as one document (also written on request with `src\App\JourneyMaster.ps1 -Export`) |
+| `overview.md` | The journey so far: one section for each session, headed by its title |
+| `journal.md` | The overview under a title, to read or share outside the game (also written on request with `src\App\JourneyMaster.ps1 -Export`). The sessions stay in `sessions\` |
 
 ## Privacy
 

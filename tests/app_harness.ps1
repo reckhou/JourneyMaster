@@ -281,6 +281,10 @@ JourneyMasterOther = nil
                 Shots = @([pscustomobject]@{ Name = 'a.jpg'; Thumb = 'Interface\AddOns\JourneyMaster\Thumbs\X\a'; W = 455; H = 256 }) },
             [pscustomobject]@{ S = 1; Title = 'Older'; First = $T - 9; Last = $T - 5; Zones = @(); LevelFrom = $null; LevelTo = $null; File = 'data\y.md'; Text = $null }) }) })
     Check 'snapshot passes its check' (Test-JournalSnapshotLua $lua) ''
+    True 'snapshot with an overview passes its check' ((Test-JournalSnapshotLua (New-JournalSnapshotLua ([pscustomobject]@{ Revision = 1; Written = $T; Characters = @([pscustomobject]@{ Key = 'A-B'; Confirmed = 1; Overview = "## One`n`nText"; Sessions = @() }) }))) -eq '')
+    Check 'overview reply keeps its section headings' (ConvertFrom-OverviewReply "TITLE: x`n`n## One`n`nText`n`n## Two`n`nMore") "## One`n`nText`n`n## Two`n`nMore"
+    True 'the first overview asks for a section for each session' ((Get-OverviewRules) -match 'one section for each entry' -and (Get-OverviewRules) -notmatch 'new entries only')
+    True 'a continuation asks for the new sections only' ((Get-OverviewRules -Continue) -match 'only the sections for the new entries')
     Check 'tampered snapshot refused' (Test-JournalSnapshotLua ($lua + "`nos.exit()")) 'unexpected text outside string values'
     Check 'ascii only' ([regex]::IsMatch($lua, '[^\x00-\x7F]')) $false
     Check 'cut on a character' (Get-SnapshotText ('ab' + [char]0xE9 + 'cd') 3).StartsWith('ab' + [char]0xE9) $false
@@ -369,6 +373,7 @@ JourneyMasterOther = nil
     True 'Opus and low effort by default' ($firstCall -match '--model opus' -and $firstCall -match '--effort low')
     $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
     True 'snapshot written' ($snap -match 'revision = 1,')
+    True 'snapshot holds the overview' ($snap -match 'overview = "')
     True 'snapshot confirms the stored entries' ($snap -match 'confirmed = 11,')
 
     # The game closes soon after the logout: the session waits 30 minutes, in case the player logs back in.
@@ -398,8 +403,8 @@ JourneyMasterOther = nil
     Check 'screenshot copied' @(Get-ChildItem (Join-Path $charDir 'screenshots')).Count 1
     True 'overview written' (Test-Path (Join-Path $charDir 'overview.md'))
     $journal = Read-FileText (Join-Path $charDir 'journal.md')
-    True 'export holds both sessions in order' ($journal -match '(?s)## Overview.*## Session record.*## Session record')
-    True 'export picture paths from the character folder' ($journal -match '\]\(screenshots/2026-11-12_')
+    True 'export is the overview, with a heading for each session in order' ($journal -match '(?s)^# The journey of Baldrake Cavendell\r?\n\r?\n## Session record\r?\n.*## Session record\r?\n')
+    True 'export has no Overview heading and no session files' ($journal -notmatch '## Overview' -and $journal -notmatch '(?m)^\*Baldrake')
     $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
     True 'snapshot revision 2' ($snap -match 'revision = 2,')
     $thumbs = @(Get-ChildItem (Join-Path $addon 'Thumbs') -Recurse -Filter '*.tga')

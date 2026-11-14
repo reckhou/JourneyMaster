@@ -953,7 +953,8 @@ function Get-SnapshotText([string]$Text, [int]$MaxBytes = 16000) {
     $Utf8.GetString($bytes, 0, $end) + "`n`n(The rest of this summary is in its file on your PC.)"
 }
 
-# JournalSnapshot.lua: Revision, Written, and Characters (Key, Confirmed, Sessions newest first: S, Title, First, Last,
+# JournalSnapshot.lua: Revision, Written, and Characters (Key, Confirmed, optional Overview (the text of the journey
+# overview), Sessions newest first: S, Title, First, Last,
 # Zones, LevelFrom, LevelTo, File, Text or $null for an older session listed by date and title only, and optional Shots:
 # Name, Thumb (the thumbnail's game path), W and H (the part of the thumbnail the picture fills)). Optional per
 # character: Deleted (session numbers), SeenTitle and SeenDelete (session number -> time of the game's rename or
@@ -970,6 +971,7 @@ function New-JournalSnapshotLua($Model) {
     foreach ($c in @($Model.Characters)) {
         $out.Add('        [' + (ConvertTo-LuaString $c.Key) + '] = {')
         $out.Add("            confirmed = $([long]$c.Confirmed),")
+        if ($c.PSObject.Properties['Overview'] -and $c.Overview) { $out.Add('            overview = ' + (ConvertTo-LuaString $c.Overview) + ',') }
         $out.Add('            sessions = {')
         foreach ($s in @($c.Sessions)) {
             $fields = @("s = $([long]$s.S)", ('title = ' + (ConvertTo-LuaString $s.Title)), "first = $([long]$s.First)", "last = $([long]$s.Last)")
@@ -1012,27 +1014,41 @@ function Test-JournalSnapshotLua([string]$Lua) {
     if ($rest -match '[^\sA-Za-z0-9_=,{}.\[\]]') { return 'unexpected text outside string values' }
     $allowed = 'local', '_', 'ns', 'journalSnapshot', 'schema', 'revision', 'written', 'characters', 'confirmed', 'sessions',
         's', 'title', 'first', 'last', 'levelFrom', 'levelTo', 'zones', 'file', 'text', 'shots', 'name', 'thumb', 'w', 'h',
-        'deleted', 'seenTitle', 'seenDelete'
+        'deleted', 'seenTitle', 'seenDelete', 'overview'
     foreach ($w in [regex]::Matches($rest, '[A-Za-z_]+')) { if ($allowed -cnotcontains $w.Value) { return "unexpected name $($w.Value)" } }
     ''
 }
 
 # The overview and the export ---------------------------------------------------------------------------------------------
 
-function Get-OverviewRules {
-@'
+# The overview's rules. It has one section for each session, headed with the session's title. With Continue, the
+# reply holds the sections for the new entries only: the app puts them after the sections already written.
+function Get-OverviewRules([switch]$Continue) {
+    $text = @'
 You write the overview of a character's journey in World of Warcraft (the WoW: Forever server), built only from the chapters written for its play sessions, which you are given in order.
 
 - Write it like a novel: third person, past tense, flowing narrative prose, British English. No first person, no jokes, no addressing the reader; every flourish must rest on the entries.
 - State only what the entries hold. Do not invent events, motives, feelings or dialogue, and do not add lore.
 - Every person, place, quest and number you name must appear in the entries.
-- Tell the journey as a whole: where the character went, what it did and with whom, the turning points (levels, deaths, dungeons, bosses). Leave out small detail.
-- Paragraphs of prose, in order. No headings and no lists.
-- If a previous overview is given, rewrite it to take in the new entries; keep what it says that is still true.
-- Write about the events, not about your sources: never mention entries, records, sessions' files or the chat log.
-
-Reply with the overview only.
+- Write one section for each entry, in the order given. Start each section with a heading line: two hash signs, a space, and the entry's title exactly as given (without the line in brackets after it). Under it, a few paragraphs of prose that tell that session's part of the journey: where the character went, what it did and with whom, the turning points (levels, deaths, dungeons, bosses). Leave out small detail.
+- Prose only under each heading: no lists, no other headings.
+- Write about the events, not about your sources: never mention entries, chapters, records, sessions' files or the chat log.
 '@
+    if ($Continue) {
+        $text += "`n- A previous overview is given. Do not repeat it. Write only the sections for the new entries, one for each, in the order given, in the same voice.`n`nReply with those sections only."
+    } else {
+        $text += "`n`nReply with the overview only."
+    }
+    $text
+}
+
+# The overview from the AI's reply: the text with its section headings (ConvertFrom-SummaryReply drops headings).
+function ConvertFrom-OverviewReply([string]$Text) {
+    $Text = ($Text -replace "`r", '').Trim()
+    $Text = [regex]::Replace($Text, '^```[a-z]*\n|\n```$', '')
+    $Text = [regex]::Replace($Text, '(?m)^\s*\**TITLE:?\**\s*:?\s*.+$\n?', '')
+    $Text = [regex]::Replace($Text, '(?m)^#\s.*$\n?', '') # a top heading is the app's own
+    $Text.Trim()
 }
 
 function New-OverviewPrompt([string]$Character, $Sessions, [string]$Previous = '') {
@@ -1053,20 +1069,10 @@ function New-OverviewPrompt([string]$Character, $Sessions, [string]$Previous = '
     $sb.ToString()
 }
 
-# The whole journal as one Markdown document: title, overview, then every session in order with its headings one level
-# down and its picture paths made relative to the character's folder.
-function New-JournalExport([string]$Character, [string]$Overview, $Sessions) {
-    $sb = New-Object Text.StringBuilder
-    [void]$sb.Append("# The journey of $Character`n`n")
-    if ($Overview) { [void]$sb.Append("## Overview`n`n$($Overview.Trim())`n`n") }
-    foreach ($s in $Sessions) {
-        [void]$sb.Append("## $($s.Title)`n`n")
-        if ($s.Line) { [void]$sb.Append("*$($s.Line)*`n`n") }
-        $body = [regex]::Replace($s.Body, '(?m)^(#+)\s', { param($m) '#' + $m.Groups[1].Value + ' ' })
-        $body = $body -replace '\]\(\.\./', ']('
-        [void]$sb.Append($body.Trim() + "`n`n")
-    }
-    $sb.ToString().TrimEnd() + "`n"
+# The journal export: a title and the overview, whose sections are headed by the session titles. The sessions' own
+# files stay in the character's sessions folder.
+function New-JournalExport([string]$Character, [string]$Overview) {
+    "# The journey of $Character`n`n$($Overview.Trim())`n"
 }
 
 # Claude ------------------------------------------------------------------------------------------------------------------
@@ -1113,5 +1119,5 @@ Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Test-Coverage, 
     Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, ConvertFrom-SignalLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
     Format-Entry, Format-RecordLines, Get-ShotLabel, Add-AccountPictures, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
     ConvertFrom-SummaryReply, Test-Grounded, Get-SessionFileName, Format-SessionLine, Format-SessionMarkdown, Read-SessionMarkdown,
-    Find-Screenshot, Get-SessionShots, New-Thumbnail, ConvertTo-LuaString, Get-SnapshotText, New-JournalSnapshotLua, Test-JournalSnapshotLua, Get-OverviewRules,
+    Find-Screenshot, Get-SessionShots, New-Thumbnail, ConvertTo-LuaString, Get-SnapshotText, New-JournalSnapshotLua, Test-JournalSnapshotLua, Get-OverviewRules, ConvertFrom-OverviewReply,
     New-OverviewPrompt, New-JournalExport, Format-CliArgument, Invoke-ClaudeCli
