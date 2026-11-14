@@ -229,6 +229,17 @@ function UI.ApplyReading(fs, role, reading)
     return ok
 end
 
+-- The game's own fonts, without testing them: { { name, path }, ... }.
+function UI.BuiltinFonts()
+    return {
+        { name = "Game default", path = STANDARD_TEXT_FONT or "Fonts\FRIZQT__.TTF" },
+        { name = "Friz Quadrata", path = "Fonts\FRIZQT__.TTF" },
+        { name = "Arial Narrow", path = "Fonts\ARIALN.TTF" },
+        { name = "Morpheus", path = "Fonts\MORPHEUS.TTF" },
+        { name = "Skurri", path = "Fonts\SKURRI.TTF" },
+    }
+end
+
 -- The fonts to choose from: the game's own, then every font other add-ons have registered with LibSharedMedia. Each is
 -- loaded once on a scratch font string, and any the game cannot load is left out. Returns { { name, path }, ... }.
 function UI.FontChoices()
@@ -238,11 +249,7 @@ function UI.FontChoices()
         seen[path:lower()] = true
         list[#list + 1] = { name = name, path = path }
     end
-    add("Game default", STANDARD_TEXT_FONT or "Fonts\FRIZQT__.TTF")
-    add("Friz Quadrata", "Fonts\FRIZQT__.TTF")
-    add("Arial Narrow", "Fonts\ARIALN.TTF")
-    add("Morpheus", "Fonts\MORPHEUS.TTF")
-    add("Skurri", "Fonts\SKURRI.TTF")
+    for _, f in ipairs(UI.BuiltinFonts()) do add(f.name, f.path) end
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
     if LSM and LSM.HashTable then
         local ok, fonts = pcall(LSM.HashTable, LSM, "font")

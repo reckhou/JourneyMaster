@@ -609,6 +609,9 @@ do
     -- The Settings tab: the buttons change the setting, and the reader follows at once.
     ns.Window.SelectTab("settings")
     local rd = ns.Window.Reading
+    eq(table.concat(ns.Window.TabNames(), ","), "journal,log,overview,settings", "the tabs run Journal, Log, Overview, Settings")
+    eq(rd.fontButton.label:GetText(), "Font: Game default", "the font button names the default font, not its path")
+    eq(#rd.preview, 2, "the preview has two paragraphs, to show the paragraph spacing")
     eq(rd.steppers.size.value:GetText(), "14", "Settings shows the size")
     rd.steppers.size.plus:Click()
     eq(UI.Reading().size, 15, "the plus button raises the size") eq(rd.steppers.size.value:GetText(), "15", "and Settings shows it")

@@ -1,5 +1,5 @@
 -- JourneyMaster window (mock-up revision B in docs/mockups/journey-window.html): two panes, about 700 by 500 pixels.
--- A session list on the left drives the reader on the right; the Journal, Overview, Log and Settings tabs run along the top.
+-- A session list on the left drives the reader on the right; the Journal, Log, Overview and Settings tabs run along the top.
 -- Journal shows a session's summary, Overview the journey so far (the whole width, no session list), Log its raw
 -- entries with one on/off chip per kind, Settings the switches.
 -- The frame, tabs, list, chips and Log lines use the mock-up's colours (UI.C and Core.KINDS), drawn with plain
@@ -20,7 +20,7 @@ local READER_PAD = 10     -- space round the reader's text and chips
 local CHIP_H, CHIP_GAP = 18, 4
 local BAR_H, BAR_SLOTS = 26, 7 -- the page bar's height, and how many page numbers or gaps it can show
 local C = UI.C
-local TABS = { { "journal", "Journal" }, { "overview", "Overview" }, { "log", "Log" }, { "settings", "Settings" } }
+local TABS = { { "journal", "Journal" }, { "log", "Log" }, { "overview", "Overview" }, { "settings", "Settings" } }
 
 local win
 local tab = "journal"
@@ -410,12 +410,13 @@ Window.AIButtons = aiButtons
 local reading = { steppers = {} }
 Window.Reading = reading
 local FONT_ROW_H = 22
-local PREVIEW = "The road wound down into the valley, and Baldrake, tired but unbowed, set his pack beside the fire. "
-    .. "\"One more mile,\" he told himself, and did not believe it.\n\nMorning found the camp quiet, the kettle cold, "
-    .. "and the hills just as far away as before."
+local PREVIEW = {
+    "The road wound down into the valley, and Baldrake set his pack beside the fire.",
+    "Morning found the camp quiet, and the hills just as far away as before.",
+}
 
 local function fontName(path)
-    for _, f in ipairs(reading.fonts or {}) do
+    for _, f in ipairs(reading.fonts or UI.BuiltinFonts()) do
         if f.path:lower() == tostring(path):lower() then return f.name end
     end
     return (tostring(path):match("([^\/]+)%.%w+$")) or tostring(path)
@@ -426,8 +427,13 @@ local function refreshReading()
     local r = UI.Reading()
     reading.fontButton.label:SetText("Font: " .. fontName(r.font))
     for key, st in pairs(reading.steppers) do st.value:SetText(tostring(r[key])) end
-    UI.ApplyReading(reading.preview, "body", r)
-    reading.preview:SetText(PREVIEW)
+    for i, fs in ipairs(reading.preview) do
+        UI.ApplyReading(fs, "body", r)
+        fs:SetText(PREVIEW[i])
+    end
+    -- The second paragraph sits one paragraph spacing below the first, as in the reader.
+    reading.preview[2]:ClearAllPoints()
+    reading.preview[2]:SetPoint("TOPLEFT", reading.preview[1], "BOTTOMLEFT", 0, -r.paragraph)
 end
 
 -- A setting changed: update the Settings tab and the reader.
@@ -527,18 +533,28 @@ local function buildReadingSettings(panel)
     reset:SetPoint("TOPLEFT", x, y - 2)
     reset:SetScript("OnClick", function() UI.ResetReading() Window.ReadingChanged() end)
     reading.reset = reset
-    reading.preview = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    reading.preview:SetPoint("TOPLEFT", x, y - 36)
-    reading.preview:SetWidth(310)
-    reading.preview:SetJustifyH("LEFT")
-    reading.preview:SetJustifyV("TOP")
-    reading.preview:SetTextColor(UI.RGB(C.text))
+    -- The preview fills what is left of the panel and clips what does not fit, so a large size cannot spill out.
+    local box = CreateFrame("Frame", nil, panel)
+    box:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y - 34)
+    box:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -8, 4)
+    if box.SetClipsChildren then box:SetClipsChildren(true) end
+    reading.preview = {}
+    for i = 1, 2 do
+        local fs = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        fs:SetWidth(300)
+        fs:SetJustifyH("LEFT")
+        fs:SetJustifyV("TOP")
+        fs:SetTextColor(UI.RGB(C.text))
+        reading.preview[i] = fs
+    end
+    reading.preview[1]:SetPoint("TOPLEFT", box, "TOPLEFT", 0, 0)
     refreshReading()
 end
 
 local function showSettings()
     for key, c in pairs(settingsChecks) do c:SetChecked(rec().Setting(key) and true or false) end
     for field, b in pairs(aiButtons) do b.label:SetText(aiLabel(field)) end
+    reading.fonts = reading.fonts or UI.FontChoices() -- the first time only: it loads each font once to test it
     refreshReading()
 end
 
@@ -802,6 +818,7 @@ Window.Footer = function() return footer end
 Window.State = function() return { tab = tab, selected = selected, filter = filter, items = list.items } end
 Window.Select = function(s) selected = s Window.Refresh() end
 Window.SelectTab = function(name) selectTab(name) end
+Window.TabNames = function() local o = {} for i, t in ipairs(TABS) do o[i] = t[1] end return o end
 Window.PageState = function() return { key = reader.pageKey, page = reader.page, total = reader.total, bar = reader.barShown and true or false } end
 Window.SetChip = function(key, on)
     if on then filter[key] = nil else filter[key] = false end
