@@ -22,7 +22,8 @@ param(
     [string]$DataDir,
     [string]$OutDir,
     [string]$ClaudePath,
-    [string]$ExtraRules    # a text file added after the overview rules (a rule change under test)
+    [string]$ExtraRules,   # a text file added after the overview rules (a rule change under test)
+    [string]$SessionFiles  # use other summaries for some sessions, such as compare_models.ps1 results: "6=<file>;9=<file>"
 )
 $ErrorActionPreference = 'Stop'
 $Here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -44,6 +45,12 @@ $SkipList = @($Skip -split '[,\s]+' | Where-Object { $_ } | ForEach-Object { [lo
 $c = $state.Characters.$Character
 if (-not $c) { throw "No character $Character in state.json" }
 $sessionsDir = Join-Path $DataDir "journeys\$($c.Folder)\sessions"
+$Other = @{}
+foreach ($pair in @($SessionFiles -split ';' | Where-Object { $_.Trim() })) {
+    $n, $f = $pair -split '=', 2
+    $Other[$n.Trim()] = [IO.Path]::GetFullPath($f.Trim())
+}
+function Read-SessionMarkdownBody { process { (Read-SessionMarkdown $_).Body } }
 
 # The session documents, oldest first, as the app's Get-SessionDocs gives them.
 $docs = @(foreach ($p in $c.Sessions.PSObject.Properties) {
@@ -52,6 +59,15 @@ $docs = @(foreach ($p in $c.Sessions.PSObject.Properties) {
     $path = Join-Path $sessionsDir $s.File
     if (-not (Test-Path -LiteralPath $path)) { continue }
     $doc = Read-SessionMarkdown (Read-FileText $path)
+    if ($Other.ContainsKey($p.Name)) {
+        # Another summary of this session: its title and account, with the journal's screenshots put where it marks them.
+        $alt = Read-SessionMarkdown (Read-FileText $Other[$p.Name])
+        $shots = @([regex]::Matches((Read-FileText $path), '!\[([^\]]*)\]\(([^)]+)\)') | ForEach-Object {
+            [pscustomobject]@{ Caption = $_.Groups[1].Value; Path = $_.Groups[2].Value } } | Sort-Object Path -Unique)
+        for ($i = 0; $i -lt $shots.Count; $i++) { $shots[$i] | Add-Member -NotePropertyName N -NotePropertyValue ($i + 1) }
+        $placed = Add-AccountPictures $alt.Body $shots
+        $doc = [pscustomobject]@{ Title = $alt.Title; Line = $doc.Line; Body = (Format-SessionMarkdown 'x' 'x' $placed.Account $placed.Rest | Read-SessionMarkdownBody) }
+    }
     [pscustomobject]@{ Number = [long]$p.Name; S = $s; Title = $(if ($doc.Title) { $doc.Title } else { $s.Title }); Line = $doc.Line; Body = $doc.Body }
 }) | Sort-Object { [long]$_.S.First }
 if ($docs.Count -eq 0) { throw 'No session files to write an overview from' }
