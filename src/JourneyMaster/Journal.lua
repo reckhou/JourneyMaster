@@ -125,7 +125,7 @@ function Journal.Blocks(markdown, shots)
     local para = {}
     local function flush()
         if #para > 0 then
-            blocks[#blocks + 1] = { text = table.concat(para, " "), gap = 4 }
+            blocks[#blocks + 1] = { text = table.concat(para, " "), gap = 4, para = true }
             para = {}
         end
     end

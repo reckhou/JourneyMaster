@@ -32,6 +32,8 @@ widgetMethods.SetShown = function(self, v) self.shown = v and true or false end
 widgetMethods.IsShown = function(self) return self.shown end
 widgetMethods.IsVisible = function(self) return self.shown end
 widgetMethods.SetText = function(self, v) self.text = v end
+widgetMethods.SetFont = function(self, path, size) self.fontPath, self.fontSize = path, size return not (W.badFonts and W.badFonts[path]) end
+widgetMethods.SetSpacing = function(self, v) self.spacing = v end
 widgetMethods.GetText = function(self) return self.text end
 widgetMethods.SetChecked = function(self, v) self.checked = v and true or false end
 widgetMethods.GetChecked = function(self) return self.checked end

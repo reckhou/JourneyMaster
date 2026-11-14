@@ -405,9 +405,141 @@ local function buildAISettings(panel)
 end
 Window.AIButtons = aiButtons
 
+-- Reading: the font, size and spacing of the reader's text (Settings tab, under the AI settings). The settings are
+-- kept for the whole account; see UI.Reading. A preview paragraph shows the result, and the reader follows at once.
+local reading = { steppers = {} }
+Window.Reading = reading
+local FONT_ROW_H = 22
+local PREVIEW = "The road wound down into the valley, and Baldrake, tired but unbowed, set his pack beside the fire. "
+    .. "\"One more mile,\" he told himself, and did not believe it.\n\nMorning found the camp quiet, the kettle cold, "
+    .. "and the hills just as far away as before."
+
+local function fontName(path)
+    for _, f in ipairs(reading.fonts or {}) do
+        if f.path:lower() == tostring(path):lower() then return f.name end
+    end
+    return (tostring(path):match("([^\/]+)%.%w+$")) or tostring(path)
+end
+
+local function refreshReading()
+    if not reading.fontButton then return end
+    local r = UI.Reading()
+    reading.fontButton.label:SetText("Font: " .. fontName(r.font))
+    for key, st in pairs(reading.steppers) do st.value:SetText(tostring(r[key])) end
+    UI.ApplyReading(reading.preview, "body", r)
+    reading.preview:SetText(PREVIEW)
+end
+
+-- A setting changed: update the Settings tab and the reader.
+function Window.ReadingChanged()
+    refreshReading()
+    if reading.popup and reading.popup:IsShown() then reading.popup:Hide() end
+    showReader()
+end
+
+-- The pop-up list of fonts, each name drawn in its own font.
+function Window.OpenFontList()
+    local popup = reading.popup
+    if popup and popup:IsShown() then popup:Hide() return end
+    if not popup then
+        popup = CreateFrame("Frame", nil, win)
+        popup:SetFrameStrata("DIALOG")
+        popup:SetSize(300, 250)
+        UI.Box(popup, C.bg, C.edge, 1)
+        popup.area = UI.ScrollArea(popup)
+        popup.area.frame:SetPoint("TOPLEFT", 4, -4)
+        popup.area.frame:SetPoint("BOTTOMRIGHT", -4, 4)
+        popup.rows = {}
+        reading.popup = popup
+    end
+    popup:ClearAllPoints()
+    popup:SetPoint("TOPLEFT", reading.fontButton, "BOTTOMLEFT", 0, -2)
+    reading.fonts = UI.FontChoices()
+    local current = UI.Reading().font:lower()
+    for i, f in ipairs(reading.fonts) do
+        local row = popup.rows[i]
+        if not row then
+            row = CreateFrame("Button", nil, popup.area.child)
+            row:SetHeight(FONT_ROW_H)
+            UI.Fill(row, "ffffff", "HIGHLIGHT", 0.08):SetAllPoints()
+            row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            row.label:SetPoint("LEFT", 8, 0)
+            row:SetScript("OnClick", function(self) UI.SetReading("font", self.path) Window.ReadingChanged() end)
+            popup.rows[i] = row
+        end
+        row.path = f.path
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", popup.area.child, "TOPLEFT", 0, -(i - 1) * FONT_ROW_H)
+        row:SetPoint("RIGHT", popup.area.child, "RIGHT", 0, 0)
+        row.label:SetFontObject("GameFontHighlight")
+        if row.label.SetFont then row.label:SetFont(f.path, 14, "") end
+        row.label:SetText(f.name)
+        row.label:SetTextColor(UI.RGB(f.path:lower() == current and C.gold or C.text))
+        row:Show()
+    end
+    for i = #reading.fonts + 1, #popup.rows do popup.rows[i]:Hide() end
+    popup.area:SetContentHeight(#reading.fonts * FONT_ROW_H)
+    popup.area:ScrollToTop()
+    popup:Show()
+end
+
+local function buildReadingSettings(panel)
+    local x = 380
+    local head = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    head:SetPoint("TOPLEFT", x, -126)
+    head:SetText("Reading")
+    head:SetTextColor(UI.RGB(C.gold))
+    local fb = UI.FlatButton(panel, "Font: Game default", "GameFontNormalSmall", C.raised, C.edge, C.soft, 10, 22)
+    fb:SetWidth(300)
+    fb:SetPoint("TOPLEFT", x, -148)
+    fb:SetScript("OnClick", Window.OpenFontList)
+    UI.Tooltip(fb, "Font", "The font of the journal's text. The list holds the game's fonts and any that other add-ons have added through LibSharedMedia. Click for the list.")
+    reading.fontButton = fb
+    local y = -180
+    for _, row in ipairs({
+        { "size", "Text size", "How large the text is, in points." },
+        { "spacing", "Line spacing", "The space between the lines of a paragraph, in pixels." },
+        { "paragraph", "Paragraph spacing", "The space between paragraphs, in pixels." } }) do
+        local key = row[1]
+        local label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        label:SetPoint("TOPLEFT", x, y)
+        label:SetText(row[2])
+        label:SetTextColor(UI.RGB(C.text))
+        local value = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        value:SetPoint("TOPLEFT", x + 190, y)
+        value:SetWidth(30)
+        value:SetJustifyH("CENTER")
+        value:SetTextColor(UI.RGB(C.gold))
+        local function step(sign, text)
+            local b = UI.FlatButton(panel, text, "GameFontNormalSmall", C.raised, C.edge, C.gold, 8, 20)
+            b:SetPoint("TOPLEFT", x + (sign < 0 and 160 or 224), y + 4)
+            b:SetScript("OnClick", function()
+                UI.SetReading(key, UI.Reading()[key] + sign * (key == "paragraph" and 2 or 1))
+                Window.ReadingChanged()
+            end)
+            UI.Tooltip(b, row[2], row[3])
+            return b
+        end
+        reading.steppers[key] = { value = value, minus = step(-1, "-"), plus = step(1, "+") }
+        y = y - 28
+    end
+    local reset = UI.FlatButton(panel, "Reset reading settings", "GameFontNormalSmall", C.raised, C.edge, C.soft, 10, 22)
+    reset:SetPoint("TOPLEFT", x, y - 2)
+    reset:SetScript("OnClick", function() UI.ResetReading() Window.ReadingChanged() end)
+    reading.reset = reset
+    reading.preview = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    reading.preview:SetPoint("TOPLEFT", x, y - 36)
+    reading.preview:SetWidth(310)
+    reading.preview:SetJustifyH("LEFT")
+    reading.preview:SetJustifyV("TOP")
+    reading.preview:SetTextColor(UI.RGB(C.text))
+    refreshReading()
+end
+
 local function showSettings()
     for key, c in pairs(settingsChecks) do c:SetChecked(rec().Setting(key) and true or false) end
     for field, b in pairs(aiButtons) do b.label:SetText(aiLabel(field)) end
+    refreshReading()
 end
 
 -- The window -------------------------------------------------------------------------------------------------------
@@ -423,6 +555,7 @@ end
 local function selectTab(name)
     tab = name
     paintTabs()
+    if reading.popup then reading.popup:Hide() end
     win.sessions:SetShown(name ~= "settings")
     win.settings:SetShown(name == "settings")
     win.chipBar:SetShown(name == "log")
@@ -572,6 +705,7 @@ local function create()
     win.settings:Hide()
     buildSettings(win.settings)
     buildAISettings(win.settings)
+    buildReadingSettings(win.settings)
 
     -- Foot: a bronze line, the counts in muted text, the reload button in the mock-up's red and gold. The button is as
     -- wide as its label, and the counts stop short of it.

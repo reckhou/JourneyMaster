@@ -178,6 +178,92 @@ local function layoutImage(area, pool, b, x, y, width)
     return shownH + 2
 end
 
+-- Reading settings: the font, size, line spacing and paragraph spacing of the reader's text. Kept for the whole account
+-- in JourneyMasterDB.reading. See docs/plans/reading-settings.md.
+UI.READING = {
+    defaults = { font = STANDARD_TEXT_FONT or "Fonts\FRIZQT__.TTF", size = 14, spacing = 4, paragraph = 10 },
+    ranges = { size = { 10, 22 }, spacing = { 0, 12 }, paragraph = { 2, 28 } },
+    -- A role's size is the setting's size plus this: the text itself, small text (captions), headings and titles.
+    offsets = { body = 0, small = -2, heading = 1, title = 5 },
+    -- Which role a block's font object has.
+    roles = { GameFontHighlight = "body", GameFontHighlightSmall = "small", GameFontNormal = "heading", GameFontNormalLarge = "title" },
+}
+
+-- The settings in force: the saved ones, with the default for any that is missing or out of range.
+function UI.Reading()
+    local saved = type(JourneyMasterDB) == "table" and JourneyMasterDB.reading or {}
+    local out = {}
+    for key, default in pairs(UI.READING.defaults) do
+        local v = saved[key]
+        local range = UI.READING.ranges[key]
+        if key == "font" then
+            out[key] = type(v) == "string" and v ~= "" and v or default
+        else
+            out[key] = (type(v) == "number" and v >= range[1] and v <= range[2]) and math.floor(v + 0.5) or default
+        end
+    end
+    return out
+end
+
+-- Saves one setting (a number is kept within its range). Returns the value kept.
+function UI.SetReading(key, value)
+    if UI.READING.defaults[key] == nil then return nil end
+    if type(JourneyMasterDB) ~= "table" then JourneyMasterDB = {} end
+    JourneyMasterDB.reading = JourneyMasterDB.reading or {}
+    local range = UI.READING.ranges[key]
+    if range then value = math.max(range[1], math.min(range[2], math.floor((tonumber(value) or UI.READING.defaults[key]) + 0.5))) end
+    JourneyMasterDB.reading[key] = value
+    return value
+end
+
+function UI.ResetReading()
+    if type(JourneyMasterDB) == "table" then JourneyMasterDB.reading = nil end
+end
+
+-- Puts the reading font on a font string for a role ("body", "small", "heading" or "title"). If the game cannot load the
+-- chosen font, the font string keeps the font object it already has.
+function UI.ApplyReading(fs, role, reading)
+    reading = reading or UI.Reading()
+    local ok = fs.SetFont and fs:SetFont(reading.font, reading.size + (UI.READING.offsets[role] or 0), "")
+    if fs.SetSpacing then fs:SetSpacing((role == "body" or role == "small") and reading.spacing or 2) end
+    return ok
+end
+
+-- The fonts to choose from: the game's own, then every font other add-ons have registered with LibSharedMedia. Each is
+-- loaded once on a scratch font string, and any the game cannot load is left out. Returns { { name, path }, ... }.
+function UI.FontChoices()
+    local list, seen = {}, {}
+    local function add(name, path)
+        if type(path) ~= "string" or seen[path:lower()] then return end
+        seen[path:lower()] = true
+        list[#list + 1] = { name = name, path = path }
+    end
+    add("Game default", STANDARD_TEXT_FONT or "Fonts\FRIZQT__.TTF")
+    add("Friz Quadrata", "Fonts\FRIZQT__.TTF")
+    add("Arial Narrow", "Fonts\ARIALN.TTF")
+    add("Morpheus", "Fonts\MORPHEUS.TTF")
+    add("Skurri", "Fonts\SKURRI.TTF")
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if LSM and LSM.HashTable then
+        local ok, fonts = pcall(LSM.HashTable, LSM, "font")
+        if ok and type(fonts) == "table" then
+            local extra = {}
+            for name, path in pairs(fonts) do extra[#extra + 1] = { name = tostring(name), path = path } end
+            table.sort(extra, function(a, b) return a.name:lower() < b.name:lower() end)
+            for _, f in ipairs(extra) do add(f.name, f.path) end
+        end
+    end
+    if not (CreateFrame and UIParent) then return list end
+    local probe = UI.fontProbe or UIParent:CreateFontString(nil, "OVERLAY")
+    UI.fontProbe = probe
+    local usable = {}
+    for _, f in ipairs(list) do
+        local ok, loaded = pcall(probe.SetFont, probe, f.path, 12, "")
+        if ok and loaded then usable[#usable + 1] = f end
+    end
+    return usable
+end
+
 -- Blocks of wrapped text, and thumbnails, stacked down a scroll area's child. Reuses its font strings and textures
 -- between calls. blocks: list of { text = "...", font = "GameFontHighlight" (optional), colour = "rrggbb" (optional),
 -- gap = pixels above (optional) } or { image = texture path, w, h (the part of the thumbnail the picture fills) }.
@@ -187,6 +273,7 @@ function UI.LayoutBlocks(area, pool, blocks)
     local width = area:Width() - 2 * pad
     local y = pad
     local n = 0
+    local reading = UI.Reading()
     pool.nImages = 0
     for _, b in ipairs(blocks) do
       if b.image then
@@ -204,10 +291,11 @@ function UI.LayoutBlocks(area, pool, blocks)
             pool[i] = fs
         end
         fs:SetFontObject(b.font or "GameFontHighlight")
+        UI.ApplyReading(fs, UI.READING.roles[b.font or "GameFontHighlight"] or "body", reading)
         fs:SetTextColor(UI.RGB(b.colour or UI.C.text))
         fs:SetWidth(width)
         fs:SetText(b.text or "")
-        y = y + (b.gap or 0)
+        y = y + (b.para and reading.paragraph or b.gap or 0)
         fs:ClearAllPoints()
         fs:SetPoint("TOPLEFT", area.child, "TOPLEFT", pad, -y)
         fs:Show()

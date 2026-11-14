@@ -582,6 +582,69 @@ do
     snap.overview = nil
 end
 
+-- Reading settings: font, size and spacing of the reader's text, kept for the account, with a font list in Settings.
+do
+    local UI = ns.UI
+    -- The shown text block drawn at a size (the captions are 2 points smaller, headings larger, so this finds body text).
+    local function bodyFont(size)
+        for _, fs in ipairs(ns.Window.widgets.reader.pool) do
+            if fs:IsShown() and fs.fontSize == size and fs.spacing == UI.Reading().spacing then return fs end
+        end
+    end
+    UI.ResetReading()
+    local r = UI.Reading()
+    eq(r.size, 14, "default text size") eq(r.spacing, 4, "default line spacing") eq(r.paragraph, 10, "default paragraph spacing")
+    ns.Window.Show()
+    ns.Window.SelectTab("journal")
+    ns.Window.Select(s1)
+    local fs = bodyFont(14)
+    check(fs ~= nil, "the reader's text takes the reading settings")
+    eq(fs.fontSize, 14, "the text is drawn at the default size") eq(fs.fontPath, r.font, "in the default font")
+    -- Clamping and saving.
+    eq(UI.SetReading("size", 99), 22, "the size stops at its largest") eq(UI.SetReading("size", 1), 10, "and its smallest")
+    eq(UI.SetReading("spacing", 5.4), 5, "a spacing is a whole number") eq(UI.SetReading("nonsense", 3), nil, "an unknown setting is ignored")
+    JourneyMasterDB.reading.size = "big"
+    eq(UI.Reading().size, 14, "a damaged saved value falls back to the default")
+    UI.ResetReading()
+    -- The Settings tab: the buttons change the setting, and the reader follows at once.
+    ns.Window.SelectTab("settings")
+    local rd = ns.Window.Reading
+    eq(rd.steppers.size.value:GetText(), "14", "Settings shows the size")
+    rd.steppers.size.plus:Click()
+    eq(UI.Reading().size, 15, "the plus button raises the size") eq(rd.steppers.size.value:GetText(), "15", "and Settings shows it")
+    rd.steppers.paragraph.plus:Click()
+    eq(UI.Reading().paragraph, 12, "paragraph spacing steps by 2")
+    rd.steppers.spacing.minus:Click()
+    eq(UI.Reading().spacing, 3, "the minus button lowers the line spacing")
+    ns.Window.SelectTab("journal")
+    fs = bodyFont(15)
+    check(fs ~= nil, "the reader draws at the new size")
+    eq(fs.spacing, 3, "with the new line spacing")
+    -- The font list: the game's fonts, then LibSharedMedia's; a font the game cannot load is left out.
+    LibStub = function() return { HashTable = function() return { ["Quill"] = "Interface\AddOns\X\quill.ttf", ["Broken"] = "broken.ttf" } end } end
+    W.badFonts = { ["broken.ttf"] = true }
+    local names = {}
+    for _, f in ipairs(UI.FontChoices()) do names[#names + 1] = f.name end
+    local joined = "," .. table.concat(names, ",") .. ","
+    check(joined:find(",Arial Narrow,", 1, true), "the game's own fonts are listed")
+    check(joined:find(",Quill,", 1, true), "a font from LibSharedMedia is listed")
+    check(not joined:find(",Broken,", 1, true), "a font the game cannot load is left out")
+    ns.Window.SelectTab("settings")
+    ns.Window.OpenFontList()
+    check(rd.popup:IsShown(), "the font list opens")
+    local quill
+    for _, row in ipairs(rd.popup.rows) do if row.path and row.path:find("quill", 1, true) then quill = row end end
+    check(quill ~= nil, "the list has a row for the font")
+    quill:Click()
+    eq(UI.Reading().font, "Interface\AddOns\X\quill.ttf", "choosing a row sets the font")
+    check(not rd.popup:IsShown(), "the list closes after a choice")
+    eq(rd.fontButton.label:GetText(), "Font: Quill", "the button names the font")
+    rd.reset:Click()
+    eq(UI.Reading().size, 14, "Reset puts the defaults back") eq(UI.Reading().font, UI.READING.defaults.font, "including the font")
+    LibStub, W.badFonts = nil, nil
+    ns.Window.SelectTab("journal")
+end
+
 -- Sessions: logging out and back in within 30 minutes stays in the session; /jm end finishes it at once.
 local sNow = c.session
 tick(600)
