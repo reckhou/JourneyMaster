@@ -8,6 +8,7 @@ prompt exactly as the app does and calls the claude command once with the given 
 <OutDir>\<Label>.json (timing, cost, word count) and <Label>.md (the title and the account). It never changes the real journal, state or session files.
 Example:
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\compare_models.ps1 -Label opus-low -Model opus -Effort low
+-ExtraRules <file> adds the file's text after the app's narrator rules, to test a change to the rules without changing the app.
 Kept ASCII-only: Windows PowerShell 5.1 reads a script without a byte-order mark as ANSI.
 #>
 param(
@@ -20,6 +21,7 @@ param(
     [string]$OutDir,
     [string]$LoreDir,
     [string]$ScreenshotDir = 'E:\World of Warcraft\_forever_\Screenshots',
+    [string]$ExtraRules,   # a text file added after the narrator rules (a rule change under test)
     [string]$ClaudePath
 )
 $ErrorActionPreference = 'Stop'
@@ -65,6 +67,7 @@ $lines = @(Format-RecordLines $sess.Entries $player $pictures | ForEach-Object {
 [IO.File]::WriteAllText((Join-Path $OutDir "$Label-record.txt"), ($header + "`n`n" + ($lines -join "`n") + "`n"), $Utf8)
 $lore = Get-LoreText $LoreDir $facts.Zones $facts.Subzones
 $rules = Get-NarratorRules
+if ($ExtraRules) { $rules = $rules.TrimEnd() + "`n`n" + (Read-FileText ([IO.Path]::GetFullPath($ExtraRules))).Trim() + "`n" }
 $prompt = New-SummaryPrompt $header $lines $lore
 $rulesFile = Join-Path $WorkDir 'rules.md'
 [IO.File]::WriteAllText($rulesFile, $rules, $Utf8)
@@ -83,6 +86,7 @@ $cost = if ($r.PSObject.Properties['total_cost_usd']) { [double]$r.total_cost_us
 $models = if ($r.PSObject.Properties['modelUsage']) { ($r.modelUsage.PSObject.Properties.Name -join ', ') } else { '' }
 $summary = [pscustomobject]@{
     Label = $Label; Model = $Model; Effort = $Effort; Character = $Character; Session = $Session
+    ExtraRules = $(if ($ExtraRules) { [IO.Path]::GetFileName($ExtraRules) } else { '' })
     PromptChars = $prompt.Length; RecordLines = $lines.Count; Seconds = $secs; CostUsd = $cost; Models = $models
     Words = $(if ($reply) { ($reply.Body -split '\s+').Count } else { 0 })
     Title = $(if ($reply) { $reply.Title } else { '' })
