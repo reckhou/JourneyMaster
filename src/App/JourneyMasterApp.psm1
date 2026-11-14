@@ -497,7 +497,9 @@ function Format-Entry($Entry, [string]$Player) {
         }
         'chat' {
             $ch = & $f 'ch'
-            $role = if ($who -eq $Player) { "$who (the character)" } else { "$who (player)" }
+            # Chat may give the character's full name ("Baldrake Cavendell") where the game's name is the first word only.
+            $self = $who -and ($who -eq $Player -or ([string]$who -split ' ')[0] -eq $Player)
+            $role = if ($self) { "$who (the character)" } else { "$who (player)" }
             if ($ch -eq 'emote') {
                 if (& $f 'stock') { return "(emote) $(& $f 'text')" }
                 # The add-on Total RP 3 sends its "NPC speech" as a player's emote that starts with a pipe:
@@ -509,7 +511,7 @@ function Format-Entry($Entry, [string]$Player) {
                     $rest = $m.Groups[1].Value
                     $pet = & $f 'pet'
                     $kind = if (& $f 'fam') { ", a $(& $f 'fam')" } else { '' }
-                    $by = if ($who -eq $Player) { "the character's player" } else { "the player $who" }
+                    $by = if ($self) { "the character's player" } else { "the player $who" }
                     $s = [regex]::Match($rest, '^(.+?) (says|yells|whispers): (.*)$')
                     if ($s.Success) {
                         $name = $s.Groups[1].Value

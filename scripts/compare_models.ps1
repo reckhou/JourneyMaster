@@ -19,6 +19,7 @@ param(
     [string]$DataDir,
     [string]$OutDir,
     [string]$LoreDir,
+    [string]$ScreenshotDir = 'E:\World of Warcraft\_forever_\Screenshots',
     [string]$ClaudePath
 )
 $ErrorActionPreference = 'Stop'
@@ -50,7 +51,18 @@ if ($windows.Count -gt 0) { Write-Host "Note: the session has $($windows.Count) 
 
 $facts = Get-SessionFacts $sess $c.Level
 $header = Format-RecordHeader ([pscustomobject]@{ Name = $player; Race = $c.Race; Class = $c.Class; Faction = $c.Faction; Sex = $c.Sex }) $sess $facts
-$lines = @(Format-RecordLines $sess.Entries $player | ForEach-Object { "$($_.Time) $($_.Text)" })
+# Picture numbers, as the app gives them: one for each screenshot entry whose file is found, in order.
+$shotDirs = @($ScreenshotDir, (Join-Path $DataDir "journeys\$Character\screenshots")) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+$pictures = @{}
+foreach ($e in $sess.Entries) {
+    if ((Get-Field $e 'k') -ne 'shot') { continue }
+    $found = $null
+    foreach ($d in $shotDirs) { if (-not $found) { $found = Find-Screenshot $d ([long](Get-Field $e 't')) } }
+    if ($found) { $pictures[[string](Get-Field $e 't')] = $pictures.Count + 1 }
+}
+$lines = @(Format-RecordLines $sess.Entries $player $pictures | ForEach-Object { "$($_.Time) $($_.Text)" })
+# The exact record the AI is given, kept beside the result so the account can be checked against it.
+[IO.File]::WriteAllText((Join-Path $OutDir "$Label-record.txt"), ($header + "`n`n" + ($lines -join "`n") + "`n"), $Utf8)
 $lore = Get-LoreText $LoreDir $facts.Zones $facts.Subzones
 $rules = Get-NarratorRules
 $prompt = New-SummaryPrompt $header $lines $lore

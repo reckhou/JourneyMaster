@@ -310,6 +310,10 @@ eq(last().own, nil, "another speaker is not the pet")
 fire("CHAT_MSG_EMOTE", "|| Zigzag says: She stopped writing for a reason.", "Baldrake Cavendell")
 eq(last().k, "chat", "voiced line stays the player's emote") eq(last().pet, "Zigzag", "voiced line keeps the pet's name")
 eq(last().fam, "Voidwalker", "voiced line keeps the pet's kind")
+c.name = "Baldrake" -- the game's name may be the first word only, whilst chat gives the full name
+fire("CHAT_MSG_EMOTE", "|| Zigzag yells: Run!", "Baldrake Cavendell")
+eq(last().pet, "Zigzag", "voiced line under the player's full name keeps the pet")
+c.name = "Baldrake Cavendell"
 fire("CHAT_MSG_EMOTE", "|| Zigzag says: not mine.", "Seph")
 eq(last().pet, nil, "another player's voiced line keeps no pet")
 fire("CHAT_MSG_EMOTE", "waves.", "Baldrake Cavendell")

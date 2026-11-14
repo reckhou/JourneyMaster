@@ -446,7 +446,10 @@ local function onChat(event, msg, speaker)
     -- The add-on Total RP 3 sends its "NPC speech" as the player's own emote that starts with a pipe:
     -- "| Zigzag says: ...". The player's current pet and its kind ("Voidwalker", "Wolf") are kept with such a line, so
     -- the app can tell when the voiced character is the player's own pet.
-    if spec.ch == "emote" and not spec.stock and body:sub(1, 1) == "|" and entry.who == short(call(UnitName, "player")) then
+    -- Chat may give the player's full name ("Baldrake Cavendell") where the game's name is the first word only.
+    local me = char and char.name
+    local mine = entry.who and me and (entry.who == me or entry.who:match("^(%S+)") == me)
+    if spec.ch == "emote" and not spec.stock and body:sub(1, 1) == "|" and mine then
         entry.pet = short(call(UnitName, "pet"))
         entry.fam = entry.pet and text(call(UnitCreatureFamily, "pet"), 40) or nil
     end

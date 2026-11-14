@@ -210,6 +210,8 @@ JourneyMasterOther = nil
     Check 'death with killer' (Format-Entry @{ k = 'death'; z = 'Duskwood'; killer = 'Stitches'; spell = 'melee' } $P) 'Baldrake Cavendell died in Duskwood, killed by Stitches.'
     Check 'death without killer' (Format-Entry @{ k = 'death'; z = 'Duskwood' } $P) 'Baldrake Cavendell died in Duskwood.'
     Check 'own say' (Format-Entry @{ k = 'chat'; ch = 'say'; who = $P; text = 'hello' } $P) 'Baldrake Cavendell (the character) said: "hello"'
+    Check 'own say under the full name' (Format-Entry @{ k = 'chat'; ch = 'say'; who = 'Baldrake Cavendell'; text = 'hello' } 'Baldrake') 'Baldrake Cavendell (the character) said: "hello"'
+    Check 'own voiced line under the full name' (Format-Entry @{ k = 'chat'; ch = 'emote'; who = 'Baldrake Cavendell'; text = '|| Old Tom says: Aye.' } 'Baldrake') 'Old Tom (a character voiced in role-play by the character''s player) said: "Aye."'
     Check 'npc from log' (Format-Entry @{ k = 'npc'; ch = 'yell'; who = 'Bazil Thredd'; text = 'Lads!'; src = 'log' } $P) '[background] Bazil Thredd (NPC) yelled (from the chat log): "Lads!"'
     Check 'unmarked pet speech is background' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'As you command.' } $P) '[background] Zigzag (NPC) said: "As you command."'
     Check 'own minion stock line' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'As you command.'; own = $true; fam = 'Voidwalker' } $P) 'Zigzag (the character''s own minion, a Voidwalker) said, a stock line of the creature: "As you command."'
