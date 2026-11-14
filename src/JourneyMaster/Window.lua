@@ -18,6 +18,7 @@ local TITLE_H, TABS_H, FOOT_H = 26, 22, 30
 local BODY_TOP = EDGE + TITLE_H + 6 + TABS_H + 2 -- title bar, gap, tabs, the line under the tabs
 local READER_PAD = 10     -- space round the reader's text and chips
 local CHIP_H, CHIP_GAP = 18, 4
+local BAR_H, BAR_SLOTS = 26, 7 -- the page bar's height, and how many page numbers or gaps it can show
 local C = UI.C
 local TABS = { { "journal", "Journal" }, { "overview", "Overview" }, { "log", "Log" }, { "settings", "Settings" } }
 
@@ -28,6 +29,7 @@ local reader = { pool = {} }
 local chips = {}
 local filter = {}          -- chip key -> false when hidden (not saved: every opening starts with all kinds shown)
 local selected             -- session number shown
+local pageOf = {}          -- the page last shown for each text: "overview", or "<tab>:<session>" (kept while the game runs)
 local tabButtons, settingsChecks = {}, {}
 local footer
 Window.widgets = { list = list, reader = reader, chips = chips }
@@ -45,6 +47,52 @@ local function currentItem()
     return list.items[1]
 end
 
+-- The page bar under the reader: shown only when the text has more than one page. The reader's scroll area gives up the
+-- bar's height only while the bar shows.
+local function setBarLabel(b, text, padding)
+    b.label:SetText(text)
+    b:SetWidth((b.label:GetStringWidth() or 20) + 2 * padding)
+end
+
+local function showPageBar(pkey, page, total)
+    local bar = reader.bar
+    reader.pageKey, reader.page, reader.total = pkey, page, total
+    if not bar then return end
+    local show = total > 1
+    bar:SetShown(show)
+    if reader.barShown ~= show then
+        reader.barShown = show
+        reader.area.frame:SetPoint("BOTTOMRIGHT", reader.pane, "BOTTOMRIGHT", -4, show and (4 + BAR_H) or 4)
+    end
+    if not show then return end
+    local x = READER_PAD
+    bar.prev:ClearAllPoints()
+    bar.prev:SetPoint("LEFT", bar, "LEFT", x, 0)
+    bar.prev.label:SetTextColor(UI.RGB(page > 1 and C.gold or C.dim))
+    x = x + bar.prev:GetWidth() + 6
+    local entries = Journal.PageNumbers(page, total)
+    for i = 1, BAR_SLOTS do
+        local b, e = bar.slots[i], entries[i]
+        if not e then
+            b:Hide()
+        else
+            local gap = e == "gap"
+            b.page = (not gap) and e or nil
+            setBarLabel(b, gap and "..." or tostring(e), gap and 4 or 6)
+            b.box.fill:SetColorTexture(UI.RGB(e == page and C.on or C.raised))
+            b.label:SetTextColor(UI.RGB(e == page and C.gold or gap and C.dim or C.soft))
+            b:ClearAllPoints()
+            b:SetPoint("LEFT", bar, "LEFT", x, 0)
+            b:Show()
+            x = x + b:GetWidth() + 4
+        end
+    end
+    bar.next:ClearAllPoints()
+    bar.next:SetPoint("LEFT", bar, "LEFT", x + 2, 0)
+    bar.next.label:SetTextColor(UI.RGB(page < total and C.gold or C.dim))
+    bar.text:SetText(string.format("Page %d of %d", page, total))
+end
+
 local function showReader()
     if not win then return end
     local item = currentItem()
@@ -60,7 +108,26 @@ local function showReader()
     else
         blocks = Journal.JournalBlocks(key, item)
     end
-    UI.LayoutBlocks(reader.area, reader.pool, blocks)
+    -- One page at a time. The page shown is the one last chosen for this text, else the newest sessions' (the last page)
+    -- for the Overview and the first page for the others.
+    local pages = Journal.PagesFor(tab, blocks)
+    local total = #pages
+    local pkey = tab == "overview" and "overview" or (tab .. ":" .. tostring(item and item.s or 0))
+    local page = math.max(1, math.min(pageOf[pkey] or (tab == "overview" and total or 1), total))
+    showPageBar(pkey, page, total)
+    UI.LayoutBlocks(reader.area, reader.pool, pages[page])
+    local subject = pkey .. "#" .. page
+    if reader.subject ~= subject then
+        reader.subject = subject
+        reader.area:ScrollToTop() -- a new page or session starts at its top; a live refresh of the same page keeps its place
+    end
+end
+
+-- Shows page n of the text in the reader (kept for the next time this text is shown).
+function Window.GoToPage(n)
+    if not reader.pageKey then return end
+    pageOf[reader.pageKey] = math.max(1, math.min(tonumber(n) or 1, reader.total or 1))
+    showReader()
 end
 
 local function makeRow(i)
@@ -476,6 +543,29 @@ local function create()
     reader.area.frame:SetPoint("BOTTOMRIGHT", -4, 4)
     reader.area.onResize = function() showReader() end
 
+    -- The page bar at the foot of the reader: Prev, the page numbers (the current one lit), Next, and "Page 2 of 5".
+    reader.bar = CreateFrame("Frame", nil, reader.pane)
+    reader.bar:SetPoint("BOTTOMLEFT", reader.pane, "BOTTOMLEFT", 0, 0)
+    reader.bar:SetPoint("BOTTOMRIGHT", reader.pane, "BOTTOMRIGHT", 0, 0)
+    reader.bar:SetHeight(BAR_H)
+    UI.Box(reader.bar, nil, C.edge, 1, "T")
+    reader.bar:Hide()
+    local function flat(label, padding) return UI.FlatButton(reader.bar, label, "GameFontNormalSmall", C.raised, C.edge, C.soft, padding, 18) end
+    reader.bar.prev = flat("< Prev", 8)
+    reader.bar.prev:SetScript("OnClick", function() Window.GoToPage((reader.page or 1) - 1) end)
+    reader.bar.next = flat("Next >", 8)
+    reader.bar.next:SetScript("OnClick", function() Window.GoToPage((reader.page or 1) + 1) end)
+    reader.bar.slots = {}
+    for i = 1, BAR_SLOTS do
+        local b = flat("1", 6)
+        b:SetScript("OnClick", function(self) if self.page then Window.GoToPage(self.page) end end)
+        b:Hide()
+        reader.bar.slots[i] = b
+    end
+    reader.bar.text = reader.bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    reader.bar.text:SetPoint("RIGHT", reader.bar, "RIGHT", -READER_PAD, 0)
+    reader.bar.text:SetTextColor(UI.RGB(C.muted))
+
     win.settings = CreateFrame("Frame", nil, win)
     win.settings:SetPoint("TOPLEFT", EDGE + 8, -BODY_TOP)
     win.settings:SetPoint("BOTTOMRIGHT", -(EDGE + 8), EDGE + FOOT_H)
@@ -578,6 +668,7 @@ Window.Footer = function() return footer end
 Window.State = function() return { tab = tab, selected = selected, filter = filter, items = list.items } end
 Window.Select = function(s) selected = s Window.Refresh() end
 Window.SelectTab = function(name) selectTab(name) end
+Window.PageState = function() return { key = reader.pageKey, page = reader.page, total = reader.total, bar = reader.barShown and true or false } end
 Window.SetChip = function(key, on)
     if on then filter[key] = nil else filter[key] = false end
     if chips[key] then chips[key]:SetChecked(on) end

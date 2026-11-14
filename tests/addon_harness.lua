@@ -529,6 +529,59 @@ eq(st.items[2].entries, 0, "trimmed session has no entries left in the add-on")
 ns.Window.SelectTab("log")
 ns.Window.Select(s1)
 
+-- Pages: a long overview and a long summary show one page at a time, with a bar to move between pages.
+do
+    local KEYP = "Baldrake Cavendell-LivingFlame"
+    local function words(n, tag) local t = {} for i = 1, n do t[i] = tag .. i end return table.concat(t, " ") end
+    local parts = {}
+    for i = 1, 7 do parts[#parts + 1] = "## Session " .. i .. "\n\n" .. words(500, "s" .. i .. "w") end
+    local snap = ns.journalSnapshot.characters[KEYP]
+    snap.overview = table.concat(parts, "\n\n")
+    local longText = {}
+    for i = 1, 10 do longText[#longText + 1] = words(200, "p" .. i .. "_") end
+    local savedText = snap.sessions[1].text
+    snap.sessions[1].text = table.concat(longText, "\n\n")
+    ns.Window.Show()
+    ns.Window.SelectTab("overview")
+    local ps = ns.Window.PageState()
+    eq(ps.total, 3, "7 sessions of 500 words make 3 overview pages") eq(ps.page, 3, "the Overview opens on its last page, the newest sessions")
+    check(ps.bar, "the page bar shows for a long overview")
+    ns.Window.GoToPage(1)
+    eq(ns.Window.PageState().page, 1, "a page number jumps to that page")
+    ns.Window.GoToPage(99)
+    eq(ns.Window.PageState().page, 3, "a page past the end stops at the last page")
+    local bar = ns.Window.widgets.reader.bar
+    bar.prev:Click()
+    eq(ns.Window.PageState().page, 2, "Prev goes back a page")
+    bar.next:Click()
+    bar.next:Click()
+    eq(ns.Window.PageState().page, 3, "Next stops at the last page")
+    eq(bar.text:GetText(), "Page 3 of 3", "the bar says which page")
+    bar.slots[1]:Click()
+    eq(ns.Window.PageState().page, 1, "a page number button jumps to that page")
+    ns.Window.SelectTab("journal")
+    ns.Window.SelectTab("overview")
+    eq(ns.Window.PageState().page, 1, "the window remembers the Overview's page")
+    -- The Journal tab: a 2,000-word summary has 2 pages and opens on the first; each session keeps its own page.
+    ns.Window.SelectTab("journal")
+    ns.Window.Select(s1)
+    ps = ns.Window.PageState()
+    eq(ps.total, 2, "a 2,000-word summary has 2 pages") eq(ps.page, 1, "a summary opens on its first page")
+    ns.Window.GoToPage(2)
+    ns.Window.SelectTab("overview")
+    ns.Window.SelectTab("journal")
+    eq(ns.Window.PageState().page, 2, "the window remembers the summary's page")
+    ns.Window.SelectTab("log")
+    eq(ns.Window.PageState().key, "log:" .. s1, "the Log tab pages its own text")
+    -- A short text has no bar.
+    snap.sessions[1].text = savedText
+    ns.Window.SelectTab("journal")
+    ns.Window.Refresh()
+    ps = ns.Window.PageState()
+    eq(ps.total, 1, "a short summary has one page") check(not ps.bar, "no page bar for a short text")
+    snap.overview = nil
+end
+
 -- Sessions: logging out and back in within 30 minutes stays in the session; /jm end finishes it at once.
 local sNow = c.session
 tick(600)

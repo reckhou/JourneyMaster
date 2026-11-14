@@ -226,5 +226,50 @@ local trimmed = Journal.LogBlocks("D-R", items[3], {}, nil)
 check(trimmed[3].text:find("events", 1, true) ~= nil, "trimmed session's Log points to events")
 eq(Journal.LastSummaryDate(), os.date("%d %b %Y", T + 50000), "last summary date")
 
+-- Pages -----------------------------------------------------------------------------------------------------------
+local function words(n, tag) local t = {} for i = 1, n do t[i] = tag .. i end return table.concat(t, " ") end
+local function para(n, tag) return { text = words(n, tag), gap = 4 } end
+local function sizes(pages) local o = {} for i, pg in ipairs(pages) do o[i] = #pg end return o end
+eq(Journal.BlockWords({ text = "|cffffd100Two words|r here" }), 3, "colour codes are not words")
+eq(Journal.BlockWords({ image = "T\a" }), Journal.PAGE.imageWords, "a picture counts as 100 words")
+-- A summary: 10 paragraphs of 200 words (2,000 words) make 2 pages of 5 paragraphs; a short text makes one page.
+local summary = {}
+for i = 1, 10 do summary[i] = para(200, "p" .. i .. "_") end
+local sp = Journal.PagesFor("journal", summary)
+eq(#sp, 2, "a 2,000-word summary has 2 pages") eq(#sp[1], 5, "the first page holds 5 paragraphs") eq(#sp[2], 5, "the second page holds 5")
+eq(#Journal.PagesFor("journal", { para(300, "a"), para(300, "b") }), 1, "a short text has one page")
+eq(#Journal.PagesFor("journal", {}), 1, "no blocks still give one (empty) page")
+-- A small tail joins the page before it: 1,000 + 100 words stay on one page.
+local tail = Journal.PagesFor("journal", { para(500, "a"), para(500, "b"), para(100, "c") })
+eq(#tail, 1, "a last page under 30% of a page is joined to the one before it")
+eq(#Journal.PagesFor("journal", { para(500, "a"), para(500, "b"), para(400, "c") }), 2, "a bigger tail keeps its own page")
+-- A heading never ends a page, and a picture stays with its caption.
+local keep = Journal.PagesFor("journal", { para(900, "a"), { text = "Heading", heading = 2 }, para(300, "b"), para(900, "c") })
+check(keep[1][#keep[1]].heading == nil, "a heading does not end a page")
+local pic = Journal.PagesFor("journal", { para(950, "a"), { image = "T\a" }, { text = "caption" }, para(950, "b") })
+check(not pic[1][#pic[1]].image, "a picture does not end a page without its caption")
+-- The Overview: whole sections, at most 3 and 2,000 words a page; the title line goes with the first section.
+local function section(n, title) return { { text = title, heading = 2 }, para(n, title) } end
+local ov = { { text = "The journey so far", font = "GameFontNormalLarge" } }
+for i = 1, 7 do for _, b in ipairs(section(500, "S" .. i)) do ov[#ov + 1] = b end end
+local op = Journal.PagesFor("overview", ov)
+eq(#op, 3, "7 sections of 500 words make 3 pages") eq(#op[1], 7, "page 1: title and 3 sections (1 + 3 x 2 blocks)")
+eq(op[1][1].text, "The journey so far", "the title line is on the first page") eq(op[3][1].text, "S7", "the newest session is on the last page")
+eq(#op[3], 2, "the last page holds the one section left")
+local big = {}
+for i = 1, 3 do for _, b in ipairs(section(900, "B" .. i)) do big[#big + 1] = b end end
+eq(#Journal.PagesFor("overview", big), 2, "900-word sections: 2 to a page by the word limit")
+local huge = Journal.PagesFor("overview", section(3000, "H"))
+eq(#huge, 1, "a section is never split, even over the word limit")
+local plain = {}
+for i = 1, 10 do plain[i] = para(300, "q" .. i .. "_") end
+check(#Journal.PagesFor("overview", plain) > 1, "an overview without section headings is paged by words")
+check(#Journal.PagesFor("log", { para(600, "l1"), para(600, "l2"), para(600, "l3"), para(600, "l4") }) == 2, "the Log is paged by words")
+-- The page bar's numbers.
+local function nums(cur, tot) local o = {} for i, v in ipairs(Journal.PageNumbers(cur, tot)) do o[i] = tostring(v) end return table.concat(o, " ") end
+eq(nums(1, 1), "1", "one page") eq(nums(2, 5), "1 2 3 4 5", "a few pages show every number")
+eq(nums(1, 12), "1 2 gap 12", "the first page of twelve") eq(nums(6, 12), "1 gap 5 6 7 gap 12", "the middle of twelve")
+eq(nums(12, 12), "1 gap 11 12", "the last page of twelve") eq(nums(4, 12), "1 2 3 4 5 gap 12", "a gap of one number shows the number")
+
 if fails > 0 then error(fails .. " core checks failed") end
 print("core harness: all checks passed")

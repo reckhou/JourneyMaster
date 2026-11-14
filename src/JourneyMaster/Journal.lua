@@ -146,7 +146,7 @@ function Journal.Blocks(markdown, shots)
         local level, heading = line:match("^(#+)%s+(.*)$")
         if heading then
             flush()
-            blocks[#blocks + 1] = { text = GOLD .. heading .. "|r", font = #level <= 1 and "GameFontNormalLarge" or "GameFontNormal", gap = 8 }
+            blocks[#blocks + 1] = { text = GOLD .. heading .. "|r", font = #level <= 1 and "GameFontNormalLarge" or "GameFontNormal", gap = 8, heading = #level }
         elseif line:match("^%s*[-*]%s+") then
             flush()
             blocks[#blocks + 1] = { text = "\226\128\162 " .. line:gsub("^%s*[-*]%s+", ""), gap = 0 }
@@ -158,6 +158,119 @@ function Journal.Blocks(markdown, shots)
     end
     flush()
     return blocks
+end
+
+-- Pages ---------------------------------------------------------------------------------------------------------------
+-- A long text is shown one page at a time. A page is a run of whole blocks; a page taller than the window scrolls inside
+-- itself. Pages are cut by content (words), never by the height of the window, so the same text always gives the same
+-- pages. See docs/plans/journal-paging.md.
+Journal.PAGE = {
+    summaryWords = 1000,    -- a session summary: about this many words a page
+    overviewWords = 2000,   -- the Overview: at most this many words a page, and
+    overviewSections = 3,   --   at most this many whole sessions (a session's section is never split)
+    logWords = 1500,        -- the Log
+    imageWords = 100,       -- a picture counts as this many words
+    tailShare = 0.3,        -- a last page under this share of a page is joined to the one before
+}
+
+-- The words in a block (colour codes are not words); a picture counts as PAGE.imageWords.
+function Journal.BlockWords(b)
+    if b.image then return Journal.PAGE.imageWords end
+    local s = tostring(b.text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    local n = 0
+    for _ in s:gmatch("%S+") do n = n + 1 end
+    return n
+end
+
+local function wordsOf(blocks)
+    local n = 0
+    for _, b in ipairs(blocks) do n = n + Journal.BlockWords(b) end
+    return n
+end
+
+-- Pages of about `limit` words, cut between blocks. A heading stays with the block after it, and a picture with its
+-- caption. A last page smaller than tailShare of a page is joined to the one before it.
+local function packBlocks(blocks, limit)
+    local pages, page, words = {}, {}, 0
+    for _, b in ipairs(blocks) do
+        local w = Journal.BlockWords(b)
+        local last = page[#page]
+        if #page > 0 and words + w > limit and not (last and (last.heading or last.image)) then
+            pages[#pages + 1] = page
+            page, words = {}, 0
+        end
+        page[#page + 1] = b
+        words = words + w
+    end
+    if #page > 0 then pages[#pages + 1] = page end
+    if #pages > 1 and wordsOf(pages[#pages]) < Journal.PAGE.tailShare * limit then
+        local tail = table.remove(pages)
+        for _, b in ipairs(tail) do pages[#pages][#pages[#pages] + 1] = b end
+    end
+    return pages
+end
+
+-- Pages of whole sections. A section starts at a heading block of the given level; the blocks before the first one
+-- (the Overview's title line) go with the first section. A page takes sections while it holds fewer than maxSections
+-- and stays within `limit` words; a section too big for that has a page to itself.
+local function packSections(blocks, limit, maxSections, level)
+    local units, cur = {}, nil
+    for _, b in ipairs(blocks) do
+        if not cur or (b.heading == level and cur.started) then
+            cur = {}
+            units[#units + 1] = cur
+        end
+        if b.heading == level then cur.started = true end
+        cur[#cur + 1] = b
+    end
+    local pages, page, words, n = {}, {}, 0, 0
+    for _, u in ipairs(units) do
+        local w = wordsOf(u)
+        if #page > 0 and (n >= maxSections or words + w > limit) then
+            pages[#pages + 1] = page
+            page, words, n = {}, 0, 0
+        end
+        for _, b in ipairs(u) do page[#page + 1] = b end
+        words, n = words + w, n + 1
+    end
+    if #page > 0 then pages[#pages + 1] = page end
+    return pages
+end
+
+-- The pages of a tab's blocks ("journal", "overview" or "log"): a list of lists of blocks, never empty.
+function Journal.PagesFor(tab, blocks)
+    local P = Journal.PAGE
+    local pages
+    if tab == "overview" then
+        local sections = false
+        for _, b in ipairs(blocks) do if b.heading == 2 then sections = true break end end
+        pages = sections and packSections(blocks, P.overviewWords, P.overviewSections, 2) or packBlocks(blocks, P.overviewWords)
+    elseif tab == "log" then
+        pages = packBlocks(blocks, P.logWords)
+    else
+        pages = packBlocks(blocks, P.summaryWords)
+    end
+    if #pages == 0 then pages = { {} } end
+    return pages
+end
+
+-- What the page bar shows for page `current` of `total`: page numbers, and "gap" where some are left out, for example
+-- 1 gap 5 6 7 gap 12. The first page, the last page and the current page with its neighbours always show.
+function Journal.PageNumbers(current, total)
+    local keep = {}
+    for _, n in ipairs({ 1, total, current - 1, current, current + 1 }) do
+        if n >= 1 and n <= total then keep[n] = true end
+    end
+    local out, previous = {}, 0
+    for n = 1, total do
+        if keep[n] then
+            if n - previous == 2 then out[#out + 1] = n - 1 end -- a gap of one number shows the number
+            if n - previous > 2 then out[#out + 1] = "gap" end
+            out[#out + 1] = n
+            previous = n
+        end
+    end
+    return out
 end
 
 -- The Journal tab's blocks for a session.
