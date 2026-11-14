@@ -1036,7 +1036,7 @@ function ConvertTo-LuaString([string]$Text) {
 }
 
 # Text cut to at most MaxBytes of UTF-8 on a whole character, with a note when cut.
-function Get-SnapshotText([string]$Text, [int]$MaxBytes = 16000) {
+function Get-SnapshotText([string]$Text, [int]$MaxBytes = 64000) {
     $bytes = $Utf8.GetBytes($Text)
     if ($bytes.Length -le $MaxBytes) { return $Text }
     $end = $MaxBytes
