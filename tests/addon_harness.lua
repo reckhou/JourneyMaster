@@ -184,6 +184,40 @@ W.RunTimers() W.RunTimers()
 eq(W.shots, shots + 2, "a zone saved as seen counts as visited: no first-visit screenshot")
 W.zone = "Elwynn Forest"
 fire("ZONE_CHANGED_NEW_AREA")
+-- Staying on: the next stay screenshot comes as soon as the 45 minutes are over, with no zone change and no new wait.
+eq(ns.Recorder.ZONE_COOLDOWN, 45 * 60, "45 minutes between stay screenshots")
+-- Run with 10 minutes, so no gap here reaches the 30 minutes that start a new session in the later checks.
+ns.Recorder.ZONE_COOLDOWN = 600
+c.zonesSeen["Elwynn Forest"] = W.now
+W.zone = "Westfall" -- out and back, so the wait starts again with the shorter time
+fire("ZONE_CHANGED_NEW_AREA")
+W.zone = "Elwynn Forest"
+fire("ZONE_CHANGED_NEW_AREA")
+shots = W.shots
+W.now = c.zonesSeen["Elwynn Forest"] + ns.Recorder.ZONE_COOLDOWN - 20
+W.RunTimers() W.RunTimers()
+eq(W.shots, shots, "no stay screenshot before the 45 minutes are over")
+tick(20)
+W.RunTimers() W.RunTimers()
+eq(W.shots, shots + 1, "still in the zone: a stay screenshot as soon as the 45 minutes are over")
+eq(last().why, "zone", "it is a stay screenshot")
+tick(ns.Recorder.ZONE_COOLDOWN)
+W.RunTimers() W.RunTimers()
+eq(W.shots, shots + 2, "and again 45 minutes later, still with no zone change")
+-- Coming back after the 45 minutes: the stay still needs 5 minutes there.
+W.zone = "Westfall"
+fire("ZONE_CHANGED_NEW_AREA")
+W.RunTimers()
+W.zone = "Elwynn Forest"
+tick(ns.Recorder.ZONE_COOLDOWN)
+fire("ZONE_CHANGED_NEW_AREA")
+tick(290)
+W.RunTimers() W.RunTimers()
+eq(W.shots, shots + 2, "back after the 45 minutes: no stay screenshot within 5 minutes")
+tick(10)
+W.RunTimers() W.RunTimers()
+eq(W.shots, shots + 3, "back after the 45 minutes: stay screenshot after 5 minutes there")
+ns.Recorder.ZONE_COOLDOWN = 45 * 60
 
 -- Chat -------------------------------------------------------------------------------------------------------------
 tick()

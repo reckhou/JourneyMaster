@@ -250,32 +250,40 @@ end
 --    flying it waits for the landing, as other screenshots do; if the player has left the zone by then, none is taken
 --    and the next arrival tries again. Dungeons and raids take none: they have their own entry screenshot.
 -- 2. Stay ("zone"): the screenshot of a stay waits until the player has stayed in the zone for ZONE_STAY seconds, so
---    passing through, or crossing it on a flight path, takes none. A zone counts as seen for ZONE_COOLDOWN seconds
---    after its stay screenshot: zonesSeen keeps the time of that screenshot, and a later stay takes a new one. Leaving
---    the zone before the screenshot means the next visit tries again. Saved values of true count as long ago.
+--    passing through, or crossing it on a flight path, takes none. A zone gets no new stay screenshot for ZONE_COOLDOWN
+--    seconds after one: zonesSeen keeps the time of the last. A player who stays on in the zone gets the next one as
+--    soon as that time is over, with no new wait and no zone change needed (owner's decision, 14 November 2026: 45
+--    minutes, down from an hour). Leaving the zone before the screenshot means the next visit tries again. Saved
+--    values of true count as long ago.
 -- After any flight seen during the wait, the screenshot also waits LANDED seconds on the ground (owner's decision,
 -- 13 November 2026), so it shows the place and not the dismount. The wait is checked every ZONE_POLL seconds, which is how flight is noticed.
-Rec.ZONE_STAY, Rec.ZONE_LANDED, Rec.ZONE_POLL, Rec.ZONE_COOLDOWN = 300, 60, 15, 3600
-local zoneWait -- { z = zone, since = time, flew = time last seen flying, token }
+Rec.ZONE_STAY, Rec.ZONE_LANDED, Rec.ZONE_POLL, Rec.ZONE_COOLDOWN = 300, 60, 15, 2700
+local zoneWait -- { z = zone, due = time the screenshot is due, flew = time last seen flying, token }
 
-local function zoneSeen(z)
-    local t = char.zonesSeen[z]
-    return type(t) == "number" and now() - t < Rec.ZONE_COOLDOWN
+local zoneShotDue
+
+-- Starts the wait for a stay screenshot in zone z, due at the time given.
+local function startZoneWait(z, due)
+    if not (Rec.Setting("screenshots") and C_Timer and C_Timer.After) then return end
+    local token = {}
+    zoneWait = { z = z, due = due, flew = Rec.Flying() and now() or nil, token = token }
+    C_Timer.After(Rec.ZONE_POLL, Rec.Guard("the zone screenshot", function() zoneShotDue(token) end))
 end
 
-local function zoneShotDue(token)
+zoneShotDue = function(token)
     if not zoneWait or zoneWait.token ~= token then return end -- left the zone, or a newer wait began
     local z = Rec.StayZone()
     if z ~= zoneWait.z then zoneWait = nil return end
     local t = now()
     if Rec.Flying() then zoneWait.flew = t end
-    if t - zoneWait.since < Rec.ZONE_STAY or (zoneWait.flew and t - zoneWait.flew < Rec.ZONE_LANDED) then
+    if t < zoneWait.due or (zoneWait.flew and t - zoneWait.flew < Rec.ZONE_LANDED) then
         C_Timer.After(Rec.ZONE_POLL, Rec.Guard("the zone screenshot", function() zoneShotDue(token) end))
         return
     end
     zoneWait = nil
     char.zonesSeen[z] = t
     Rec.Shot("zone", z)
+    startZoneWait(z, t + Rec.ZONE_COOLDOWN) -- still here when the time is over: the next one at once
 end
 
 local arriving -- the zone whose first-visit screenshot is on its way
@@ -300,10 +308,12 @@ function Rec.CheckZone()
     if not stay then return end
     firstVisit(stay)
     if zoneWait and zoneWait.z ~= stay then zoneWait = nil end
-    if not zoneSeen(stay) and not zoneWait and Rec.Setting("screenshots") and C_Timer and C_Timer.After then
-        local token = {}
-        zoneWait = { z = stay, since = now(), flew = Rec.Flying() and now() or nil, token = token }
-        C_Timer.After(Rec.ZONE_POLL, Rec.Guard("the zone screenshot", function() zoneShotDue(token) end))
+    if not zoneWait then
+        -- At least ZONE_STAY seconds here, and not before ZONE_COOLDOWN seconds after the zone's last stay screenshot.
+        local last = char.zonesSeen[stay]
+        local due = now() + Rec.ZONE_STAY
+        if type(last) == "number" then due = math.max(due, last + Rec.ZONE_COOLDOWN) end
+        startZoneWait(stay, due)
     end
 end
 Rec.ZoneWait = function() return zoneWait end
