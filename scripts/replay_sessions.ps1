@@ -11,8 +11,7 @@ The sessions use invented characters and places from the game, never real player
   4. A short session of small milestones: gear, money, a skill, a standing and a note.
 The app runs against a made-up game folder; then every summary is checked again here:
   - invents nothing: every name and number in the account is in the record the AI was given;
-  - loses nothing: every key fact of the session (quests, dungeon, boss, levels, deaths and killers, people who joined)
-    is in the account.
+  - loses nothing: every key fact of the session (dungeon, boss, levels, deaths and killers) is in the account.
 The report is written to <DataDir>\replay-report.md. Exit code 0 when every session passes.
 Examples:
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\replay_sessions.ps1            # with the real claude

@@ -266,7 +266,13 @@ JourneyMasterOther = nil
         @{ k = 'enter'; inst = 'The Stockade' }, @{ k = 'boss'; name = 'Bazil Thredd' }, @{ k = 'level'; level = 25 },
         @{ k = 'death'; killer = 'Targorr the Dread' }, @{ k = 'death'; who = 'Seph' }, @{ k = 'group'; act = 'join'; who = 'Tobin Fairweather' },
         @{ k = 'chat'; ch = 'say'; who = 'X'; text = 'y' }) 'Maren')
-    Check 'key facts' (($kf | ForEach-Object { $_.What }) -join '|') 'entered The Stockade|defeated Bazil Thredd|level 25|death, killed by Targorr the Dread|Tobin Fairweather joined'
+    Check 'key facts, without those who joined' (($kf | ForEach-Object { $_.What }) -join '|') 'entered The Stockade|defeated Bazil Thredd|level 25|death, killed by Targorr the Dread'
+    Check 'a player who only passed through may be left out' (@(Test-Coverage 'Maren entered The Stockade, saw Bazil Thredd fall, reached level 25, and was killed by Targorr the Dread.' $kf).Count) 0
+    Check 'a level written in words counts' (@(Test-Coverage 'Maren entered The Stockade, saw Bazil Thredd fall, reached her twenty-fifth level, and was killed by Targorr the Dread.' $kf).Count) 0
+    Check 'number words' ((Get-NumberWords 28) -join '|') 'twenty-eight|twenty-eighth'
+    Check 'number words for a ten' ((Get-NumberWords 30) -join '|') 'thirty|thirtieth'
+    True 'narrator told to prefer names to they' ((Get-NarratorRules) -match 'Repeat the name or recast the sentence')
+    True 'overview keeps the rules for other players' ((Get-OverviewRules) -match 'name only those who shaped' -and (Get-OverviewRules) -match 'repeat the name or recast the sentence' -and (Get-OverviewRules -Continue) -match 'reported speech by default')
     Check 'nothing lost' (@(Test-Coverage 'Maren took The Stockade Riots, entered The Stockade with Tobin, saw Bazil Thredd fall, reached level 25, and was killed by Targorr the Dread.' $kf).Count) 0
     Check 'lost facts reported' ((Test-Coverage 'Maren entered The Stockade with Tobin and reached level 25.' $kf) -join '|') 'defeated Bazil Thredd|death, killed by Targorr the Dread'
     True 'no empty screenshots heading' ((Format-SessionMarkdown 'T' 'L' 'Body.' $null) -notmatch 'Screenshots')

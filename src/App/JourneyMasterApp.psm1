@@ -651,7 +651,7 @@ Style and tone:
 - Humour is welcome: dry wit and irony that arise from the events. No puns and no modern or real-world references.
 - No first person and no addressing the reader.
 - The character's name, race, class and level are facts and may appear. Use "he" or "she" for the character only when the session facts give the character's sex; otherwise use the name or "they".
-- The record does not hold anyone else's sex: refer to other people by name or as "they".
+- The record does not hold anyone else's sex: never use "he" or "she" for another person, and never call one a man or a woman. Refer to other people by name. Repeat the name or recast the sentence before you use "they" for one person.
 
 Facts:
 - The events are fixed: who was there, where it happened, what happened and in what order, and every level, death, quest, item and number. Do not add an event, remove a turning point or change an outcome. A defeat stays a defeat.
@@ -833,8 +833,24 @@ function Test-Grounded([string]$Account, [string]$Source) {
     $missing.ToArray()
 }
 
-# The key facts of a session that its account must not lose: dungeons entered, bosses defeated, levels reached, deaths (and the killer when known), and people who joined the group. Returns objects What
-# (a description) and Terms (the account must contain one of them, in any case).
+# A number from 1 to 99 in words: the cardinal ("twenty-eight") and the ordinal ("twenty-eighth").
+function Get-NumberWords([int]$N) {
+    $ones = @('', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen',
+        'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen')
+    $onesTh = @('', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth',
+        'thirteenth', 'fourteenth', 'fifteenth', 'sixteenth', 'seventeenth', 'eighteenth', 'nineteenth')
+    $tens = @('', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety')
+    if ($N -lt 1 -or $N -gt 99) { return @() }
+    if ($N -lt 20) { return @($ones[$N], $onesTh[$N]) }
+    $t = $tens[[Math]::Floor($N / 10)]; $o = $N % 10
+    if ($o -eq 0) { return @($t, ($t -replace 'y$', 'ieth')) }
+    @("$t-$($ones[$o])", "$t-$($onesTh[$o])")
+}
+
+# The key facts of a session that its account must not lose: dungeons entered, bosses defeated, levels reached and deaths
+# (and the killer when known). People who joined the group are not key facts: the narrator leaves out players who only
+# passed through (owner's decision, 14 November 2026). A level may be written in words ("his twenty-eighth level").
+# Returns objects What (a description) and Terms (the account must contain one of them, in any case).
 function Get-KeyFacts($Entries, [string]$Player) {
     $out = New-Object Collections.Generic.List[object]
     $seen = @{}
@@ -843,13 +859,17 @@ function Get-KeyFacts($Entries, [string]$Player) {
         $item = switch (& $f 'k') {
             'enter' { [pscustomobject]@{ What = "entered $(& $f 'inst')"; Terms = @([string](& $f 'inst')) } }
             'boss' { [pscustomobject]@{ What = "defeated $(& $f 'name')"; Terms = @([string](& $f 'name')) } }
-            'level' { [pscustomobject]@{ What = "level $(& $f 'level')"; Terms = @("level $(& $f 'level')") } }
+            'level' {
+                $n = [int](& $f 'level'); $w = @(Get-NumberWords $n)
+                $terms = @("level $n", "${n}th level", "${n}st level", "${n}nd level", "${n}rd level")
+                if ($w.Count -eq 2) { $terms += @("level $($w[0])", "$($w[1]) level") }
+                [pscustomobject]@{ What = "level $n"; Terms = $terms }
+            }
             'death' {
                 if (& $f 'who') { $null }
                 elseif (& $f 'killer') { [pscustomobject]@{ What = "death, killed by $(& $f 'killer')"; Terms = @([string](& $f 'killer')) } }
                 else { [pscustomobject]@{ What = 'death'; Terms = @('died', 'death', 'killed', 'fell', 'slain') } }
             }
-            'group' { if ((& $f 'act') -eq 'join') { $name = [string](& $f 'who'); [pscustomobject]@{ What = "$name joined"; Terms = @($name, ($name -split ' ')[0]) } } }
         }
         if ($item -and -not $seen.ContainsKey($item.What)) { $seen[$item.What] = $true; $out.Add($item) }
     }
@@ -1139,8 +1159,11 @@ function Get-OverviewRules([switch]$Continue) {
 You write the overview of a character's journey in World of Warcraft (the WoW: Forever server), built only from the chapters written for its play sessions, which you are given in order.
 
 - Write it like a novel, a hero's tale told for pleasure: third person, past tense, flowing narrative prose, British English. Dry wit and irony that arise from the events are welcome. No first person, no puns, no modern or real-world references, no addressing the reader.
-- The events are fixed: tell only events the entries hold, and do not change an outcome, invent dialogue or add lore. You may heighten the telling, and carry forward the character's feelings and the judgements of other players that the entries hold.
-- Every person, place, quest and number you name must appear in the entries.
+- The events are fixed: tell only events the entries hold, and do not change an outcome, invent dialogue or add lore. A defeat stays a defeat. Do not give a cause for an event when the entries give none. You may heighten the telling, and carry forward the character's feelings and the judgements of other players that the entries hold.
+- Every person, place, item, quest, creature and number you name must appear in the entries.
+- Other players: name only those who shaped that session's part of the journey, and leave out those who only passed through. Do not invent deeds, words, thoughts or feelings for them. Use "he" or "she" for the character as the entries do. Never use "he" or "she" for another person, and never call one a man or a woman: refer to them by name, and repeat the name or recast the sentence before you use "they" for one person.
+- Speech: tell it as reported speech by default. Use a direct quotation only for a line with weight, and only words that stand inside quotation marks in the entries, unchanged.
+- The character's pet or minion, where the entries tell of it, stays a companion in the story: keep its name and its kind.
 - Write one section for each entry, in the order given. Start each section with a heading line: two hash signs, a space, and the entry's title exactly as given (without the line in brackets after it). Under it, a few paragraphs of prose that tell that session's part of the journey: where the character went, what it did and with whom, the turning points (levels, deaths, dungeons, bosses). Leave out small detail.
 - Prose only under each heading: no lists, no other headings.
 - Write about the events, not about your sources: never mention entries, chapters, records, sessions' files or the chat log.
@@ -1220,7 +1243,7 @@ function Invoke-ClaudeCli([string]$ClaudePath, [string[]]$Arguments, [string]$Wo
     $result
 }
 
-Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Test-Coverage, Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
+Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Get-NumberWords, Test-Coverage, Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
     Get-Field, Add-EventEntries, Read-EventEntries, Remove-SessionEvents, ConvertFrom-SessionChange, Get-SessionMap, Set-SessionTitle, Get-Sessions, Test-HasInstance, Test-SessionFinished, Test-SessionFinishedByPlayer, Get-SessionFacts,
     Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, ConvertFrom-SignalLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
     Format-Entry, Format-RecordLines, Get-ShotLabel, Add-AccountPictures, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
