@@ -518,9 +518,12 @@ function Format-Entry($Entry, [string]$Player) {
 function Get-ShotLabel($Entry) {
     $why = [string](Get-Field $Entry 'why')
     $z = Get-Field $Entry 'z'
+    $sz = Get-Field $Entry 'sz'
+    $place = if ($sz) { "$sz, $z" } else { $z }
     switch ($why) {
         'level' { 'Level up' } 'boss' { 'Boss defeated' } 'dungeon' { 'Entering a dungeon' }
-        'new zone' { "First visit to $z" } 'zone' { "Exploring $z" } default { $why }
+        'new zone' { "First visit to $z" } 'zone' { "Exploring $z" }
+        'new subzone' { "First visit to $place" } 'subzone' { "Time spent at $place" } default { $why }
     }
 }
 

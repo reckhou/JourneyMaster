@@ -218,6 +218,8 @@ JourneyMasterOther = nil
     True 'screenshot left out' ($null -eq (Format-Entry @{ k = 'shot'; why = 'level' } $P))
     Check 'first-visit label' (Get-ShotLabel @{ k = 'shot'; why = 'new zone'; z = 'Duskwood' }) 'First visit to Duskwood'
     Check 'stay label' (Get-ShotLabel @{ k = 'shot'; why = 'zone'; z = 'Duskwood' }) 'Exploring Duskwood'
+    Check 'subzone first-visit label' (Get-ShotLabel @{ k = 'shot'; why = 'new subzone'; z = 'Wetlands'; sz = 'Dun Modr' }) 'First visit to Dun Modr, Wetlands'
+    Check 'subzone stay label' (Get-ShotLabel @{ k = 'shot'; why = 'subzone'; z = 'Wetlands'; sz = 'Dun Modr' }) 'Time spent at Dun Modr, Wetlands'
     $recShots = @(@{ k = 'shot'; t = $T; why = 'level' }, @{ k = 'shot'; t = $T + 5; why = 'new zone'; z = 'Duskwood' })
     Check 'pictures in the record, only those with files' ((@(Format-RecordLines $recShots $P @{ "$($T + 5)" = 1 }) | ForEach-Object { $_.Text }) -join '|') '[picture 1: First visit to Duskwood]'
     Check 'no pictures given: screenshots left out' @(Format-RecordLines $recShots $P).Count 0

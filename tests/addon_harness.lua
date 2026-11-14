@@ -5,6 +5,8 @@
 local W = dofile("tests/wow_stubs.lua")
 local ns = W.LoadAddOn()
 local Core = ns.Core
+-- Subzone screenshots off until their own section, so the other screenshot counts stay simple.
+ns.Recorder.SUB_FIRST, ns.Recorder.SUB_TOTAL = math.huge, math.huge
 
 local fails = 0
 local function check(cond, msg)
@@ -218,6 +220,52 @@ tick(10)
 W.RunTimers() W.RunTimers()
 eq(W.shots, shots + 3, "back after the 45 minutes: stay screenshot after 5 minutes there")
 ns.Recorder.ZONE_COOLDOWN = 45 * 60
+
+-- Subzones: a first visit after 5 minutes without a break; one more each session after 20 minutes there in total.
+ns.Recorder.SUB_FIRST, ns.Recorder.SUB_TOTAL = 300, 1200
+local function subShots(why)
+    local n = 0
+    for _, e in ipairs(c.entries) do if e.k == "shot" and e.why == why then n = n + 1 end end
+    return n
+end
+local function play(seconds) for _ = 1, seconds / 15 do tick(15) W.RunTimers() end end -- the checks run every 15 seconds
+local GOLD = "Elwynn Forest/Goldshire"
+c.subStay = nil -- the login at the top was in Goldshire: start the count from here
+W.zone, W.sub = "Elwynn Forest", "Goldshire"
+fire("ZONE_CHANGED")
+play(270)
+eq(subShots("new subzone"), 0, "under 5 minutes in a new subzone: no screenshot")
+play(60)
+eq(subShots("new subzone"), 1, "5 minutes in a new subzone: first-visit screenshot")
+check(c.subzonesVisited[GOLD], "the subzone counts as visited")
+local subShot
+for i = #c.entries, 1, -1 do if c.entries[i].why == "new subzone" then subShot = c.entries[i] break end end
+eq(subShot.z, "Elwynn Forest", "subzone screenshot names the zone") eq(subShot.sz, "Goldshire", "and the subzone")
+W.sub = "Northshire Valley"
+play(240)
+W.sub = "Crystal Lake" -- a break
+play(30)
+W.sub = "Northshire Valley"
+play(240)
+eq(subShots("new subzone"), 1, "a break starts the 5 minutes again")
+W.flying = true
+local before = c.subStay.t[GOLD]
+W.sub = "Goldshire"
+play(120)
+eq(c.subStay.t[GOLD], before, "time flying does not count")
+W.flying = false
+play(840) -- 825 seconds more: about 1125 in this session
+eq(subShots("subzone"), 0, "under 20 minutes in a subzone in total: no stay screenshot")
+play(120)
+eq(subShots("subzone"), 1, "20 minutes in a subzone in total, over two visits: stay screenshot")
+play(1200)
+eq(subShots("subzone"), 1, "one stay screenshot per subzone per session")
+c.subStay.s = -1 -- as if a new session had begun
+play(60)
+check(c.subStay.t[GOLD] <= 60, "a new session counts again from nothing")
+W.sub = ""
+play(60)
+ns.Recorder.SUB_FIRST, ns.Recorder.SUB_TOTAL = math.huge, math.huge
 
 -- Chat -------------------------------------------------------------------------------------------------------------
 tick()

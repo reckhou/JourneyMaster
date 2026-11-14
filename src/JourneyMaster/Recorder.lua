@@ -157,15 +157,16 @@ end
 local SHOT_RETRY, SHOT_TRIES = 5, 24 -- while flying, try again every 5 seconds for up to 2 minutes, then give up
 
 -- A zone screenshot passes the outdoor zone (zone): it is taken only if the player is still there, and its entry names
--- that zone even when the player has stepped into a building. done(taken) is called once: true after the screenshot,
--- false when it is given up.
-function Rec.Shot(why, zone, done)
+-- that zone even when the player has stepped into a building. A subzone screenshot also passes the subzone (sub), which
+-- must not have changed either. done(taken) is called once: true after the screenshot, false when it is given up.
+function Rec.Shot(why, zone, done, sub)
     local function finish(taken) if done then done(taken) end end
     if not Rec.Setting("screenshots") or type(Screenshot) ~= "function" then return finish(false) end
     local tries = 0
     local take
     take = function()
         if zone and Rec.StayZone() ~= zone then return finish(false) end
+        if sub and select(2, where()) ~= sub then return finish(false) end
         if Rec.Flying() then
             tries = tries + 1
             if tries < SHOT_TRIES and C_Timer and C_Timer.After then
@@ -240,6 +241,7 @@ local function onEnteringWorld(isLogin, isReload)
     end
     Rec.CheckZone()
     Rec.CheckRoster(true)
+    Rec.StartSubzones()
 end
 
 -- Zones ----------------------------------------------------------------------------------------------------------
@@ -317,6 +319,65 @@ function Rec.CheckZone()
     end
 end
 Rec.ZoneWait = function() return zoneWait end
+
+-- Subzones (owner's decision, 14 November 2026). A subzone is the game's place name inside an outdoor zone, such as
+-- Dun Modr in the Wetlands; it is kept as "<zone>/<subzone>".
+-- 1. First visit ("new subzone"): taken once the player has stayed in a subzone the character has never had one of
+--    for SUB_FIRST seconds without a break. subzonesVisited keeps the time of that screenshot.
+-- 2. Stay ("subzone"): within one session, taken once the player's time in a subzone adds up to SUB_TOTAL seconds,
+--    over any number of visits. subStay keeps the session's times; one such screenshot per subzone per session.
+-- Time is counted every SUB_POLL seconds. Time flying does not count, and a flight breaks a stay. Dungeons and raids,
+-- and places with no subzone name, are left out. A gap between checks counts as at most SUB_GAP seconds (a loading
+-- screen or a stalled timer must not add a lump of time).
+Rec.SUB_FIRST, Rec.SUB_TOTAL, Rec.SUB_POLL, Rec.SUB_GAP = 300, 1200, 15, 60
+local subHere -- { key, since }: the subzone the player is in, and since when without a break
+local subLast -- time of the last check
+local subPending = {} -- key -> true while a subzone screenshot is on its way
+
+function Rec.SubzoneTick()
+    if not char then return end
+    local t = now()
+    local dt = subLast and math.max(0, math.min(t - subLast, Rec.SUB_GAP)) or 0
+    subLast = t
+    local _, itype = call(IsInInstance)
+    local z = Rec.StayZone()
+    local _, sz = where()
+    if itype == "party" or itype == "raid" or not z or not sz or sz == "" or Rec.Flying() then subHere = nil return end
+    local key = z .. "/" .. sz
+    local st = char.subStay
+    if type(st) ~= "table" or st.s ~= char.session then
+        st = { s = char.session, t = {}, shot = {} }
+        char.subStay = st
+    end
+    if subHere and subHere.key == key then
+        st.t[key] = (st.t[key] or 0) + dt
+    else
+        subHere = { key = key, since = t }
+    end
+    if subPending[key] then return end
+    local why
+    if not char.subzonesVisited[key] and t - subHere.since >= Rec.SUB_FIRST then why = "new subzone"
+    elseif not st.shot[key] and (st.t[key] or 0) >= Rec.SUB_TOTAL then why = "subzone" end
+    if not why then return end
+    subPending[key] = true
+    Rec.Shot(why, z, function(taken)
+        subPending[key] = nil
+        if not taken then return end
+        if why == "new subzone" then char.subzonesVisited[key] = now() else st.shot[key] = true end
+    end, sz)
+end
+
+-- The checks run for as long as the game runs, from the first time the player enters the world.
+local subTicking
+local function subzoneLoop()
+    C_Timer.After(Rec.SUB_POLL, Rec.Guard("the subzone screenshots", subzoneLoop)) -- first, so an error cannot end it
+    Rec.SubzoneTick()
+end
+function Rec.StartSubzones()
+    if subTicking or not (C_Timer and C_Timer.After) then return end
+    subTicking = true
+    C_Timer.After(Rec.SUB_POLL, Rec.Guard("the subzone screenshots", subzoneLoop))
+end
 
 -- Quests ---------------------------------------------------------------------------------------------------------
 
