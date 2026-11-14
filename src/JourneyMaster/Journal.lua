@@ -4,8 +4,9 @@
 --
 -- A listed session has: s (session number), title, first and last (epoch seconds), zones, levelFrom and levelTo,
 -- state ("full": summary text in the snapshot; "brief": summarised, text only on the PC; "pending": recorded, not yet
--- summarised), requested (a pending session whose summary was asked for a few minutes ago), text, file (the Markdown
--- file's path under the app's data folder) and entries (count in the add-on).
+-- summarised), requested (a pending session whose summary was asked for a few minutes ago), inProgress (a pending session
+-- that has not been finished), text, file (the Markdown file's path under the app's data folder) and entries (count in the
+-- add-on).
 local _, ns = ...
 local Core = ns.Core
 local Journal = {}
@@ -71,6 +72,7 @@ function Journal.List(c, key)
                 s = sess.s, title = Journal.Title(c, snapChar, sess.s, "Not summarised yet", false), first = sess.first, last = sess.last, zones = sess.zones,
                 levelFrom = sess.levelFrom, levelTo = sess.levelTo, state = "pending", entries = sess.count,
                 requested = Core.SummaryRequested(c, sess.s, time()),
+                inProgress = c ~= nil and sess.s == c.session and not c.endSession,
             }
             byS[sess.s] = item
             out[#out + 1] = item
@@ -175,13 +177,17 @@ function Journal.JournalBlocks(key, item)
         blocks[#blocks + 1] = { gap = 4, text = GREY .. "The app on your PC is writing it, which takes a few minutes. When the app says it has "
             .. "finished, click Reload to see it here. If nothing arrives, check that the app is running: the Summarise button "
             .. "comes back after ten minutes.|r" }
+    elseif item.inProgress then
+        blocks[#blocks + 1] = { gap = 8, text = "Not summarised yet." }
+        blocks[#blocks + 1] = { gap = 4, text = GREY .. "This session is still in progress, and only a finished session can be summarised. Click "
+            .. "Finish session (below, or /jm end): it ends this session and starts a new one. Then click Summarise. Nothing is "
+            .. "summarised on its own. The Log tab shows this session's record now.|r" }
     else
         blocks[#blocks + 1] = { gap = 8, text = "Not summarised yet." }
         blocks[#blocks + 1] = { gap = 4, text = GREY .. "Nothing is summarised on its own. Click Summarise (below) and the app on your PC "
-            .. "writes this session's summary from what is recorded so far. The button reloads the interface so the game writes the "
-            .. "record to disk; it does not end the session (Finish session does that, and starts a new one). What you record after "
-            .. "the reload is not in the summary. The app must be running, and can stay in the background. The summary shows here "
-            .. "after one more reload. The Log tab shows this session's record now.|r" }
+            .. "writes this session's summary. The button reloads the interface so the game writes the record to disk. The app must "
+            .. "be running, and can stay in the background. The summary shows here after one more reload. The Log tab shows this "
+            .. "session's record now.|r" }
     end
     return blocks
 end

@@ -543,25 +543,34 @@ tick(5)
 ns.Command("note after another reload")
 eq(c.session, sNow + 3, "a session the app has not summarised continues after a login")
 
--- The Summarise button: asks the app for a pending session's summary, ends nothing, reloads, and the signal goes out at the
--- next login. The app summarises nothing on its own.
+-- The Summarise button: only for a finished session. It asks the app for the summary, ends nothing, reloads, and the signal
+-- goes out at the next login. The app summarises nothing on its own.
 local KEY0 = "Baldrake Cavendell-LivingFlame"
 local sPend = c.session
-local entriesBefore = #c.entries
-local reloadsBefore = W.reloads
-W.system = {}
-ns.Window.Show()
-ns.Window.Select(sPend)
-ns.Window.Summarise()
-check(not c.endSession, "Summarise does not end the session")
-eq(#c.entries, entriesBefore, "Summarise records no end entry")
-eq(W.reloads, reloadsBefore + 1, "Summarise reloads the interface")
-W.reloads = reloadsBefore -- the reload prompt test below counts its own
-check(c.summaryRequests and c.summaryRequests[sPend] and c.summaryRequests[sPend].sent == false, "the request is noted, not sent yet")
 local function pendingItem()
     ns.Window.Refresh()
     for _, it in ipairs(ns.Window.State().items) do if it.s == sPend then return it end end
 end
+W.system = {}
+ns.Window.Show()
+ns.Window.Select(sPend)
+check(pendingItem().inProgress, "the session in progress is marked as such")
+local refused, why = ns.Signal.RequestSummary(sPend)
+eq(refused, false, "a session in progress cannot be summarised")
+check(why and why:find("Finish session", 1, true), "the refusal says to finish it first")
+ns.Window.Summarise()
+check(c.summaryRequests == nil or c.summaryRequests[sPend] == nil, "no request is noted for it")
+ns.Command("end") -- finished: Summarise may now be used
+W.RunSignalTickers()
+W.system = {}
+check(not pendingItem().inProgress, "a finished session is no longer in progress")
+local entriesBefore = #c.entries
+local reloadsBefore = W.reloads
+ns.Window.Summarise()
+eq(#c.entries, entriesBefore, "Summarise records no entry")
+eq(W.reloads, reloadsBefore + 1, "Summarise reloads the interface")
+W.reloads = reloadsBefore -- the reload prompt test below counts its own
+check(c.summaryRequests and c.summaryRequests[sPend] and c.summaryRequests[sPend].sent == false, "the request is noted, not sent yet")
 check(pendingItem().requested, "the session shows as requested")
 ns.Signal.SendSummaryRequests()
 W.RunSignalTickers()

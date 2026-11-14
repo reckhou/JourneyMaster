@@ -480,7 +480,7 @@ function Update-Summaries {
 }
 
 # The game's Summarise button: the add-on sends this signal at the login after its reload, so the saved file now holds the
-# session as it was when the player clicked. Summarises that one session (finished or not), then the overview and the
+# session as it was when the player clicked. Summarises that one session if it is finished, then the overview and the
 # snapshot. Anything the player recorded after the reload is kept in events\ but is not in the summary.
 function Invoke-SummariseRequest([string]$key, [long]$Number) {
     $sv = Find-SavedVariables
@@ -489,8 +489,10 @@ function Invoke-SummariseRequest([string]$key, [long]$Number) {
     Save-State
     $c = $State.Characters[$key]
     if ($c.Sessions.ContainsKey("$Number")) { Say "$key`: session $Number is already summarised" 'Yellow'; return }
-    $session = @(Get-Sessions (Read-EventEntries (Join-Path (Get-CharDir $c) 'events')) | Where-Object { [long]$_.S -eq $Number })
+    $all = @(Get-Sessions (Read-EventEntries (Join-Path (Get-CharDir $c) 'events')))
+    $session = @($all | Where-Object { [long]$_.S -eq $Number })
     if ($session.Count -eq 0) { Say "$key`: asked to summarise session $Number, which the saved file does not hold (deleted, or the game has not written it)" 'Yellow'; return }
+    if (-not (Test-SessionFinishedByPlayer $session[0] ([long]$all[-1].S -eq $Number))) { Say "$key`: session $Number is not finished (finish it in the game first); it is not summarised" 'Yellow'; return }
     Say "$key`: summarising session $Number, as asked in the game (this takes a minute or more)" 'Cyan'
     Use-AISettings $c
     if (Invoke-SessionSummary $key $c $session[0]) {

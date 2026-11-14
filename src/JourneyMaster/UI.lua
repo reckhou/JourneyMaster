@@ -71,6 +71,7 @@ UI.C = {
     bg = "1b1712", edge = "6b5a3a", raised = "241c11", on = "4a3b22", titleTop = "3a2f1e",
     gold = "ffd100", text = "e8dcc0", soft = "c9b98f", muted = "a8997a", dim = "7d7260",
     button = "5a1c14", buttonEdge = "a8823c",
+    finish = "1f4026", finishEdge = "5a9a62", finishText = "bfe6c3", -- the Finish session button: green, apart from Summarise and Reload
 }
 
 -- "rrggbb" to r, g, b between 0 and 1.

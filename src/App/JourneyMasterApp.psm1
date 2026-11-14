@@ -199,6 +199,14 @@ function Test-HasInstance($Session) {
     $false
 }
 
+# Whether the player has finished a session, for the game's Summarise button: it ends with an "end" entry (Finish session), or a
+# later session of the character exists. Unlike Test-SessionFinished it does not wait for time or the game to close: the
+# player asked.
+function Test-SessionFinishedByPlayer($Session, [bool]$IsLatest) {
+    if ((Get-Field $Session.Entries[-1] 'k') -eq 'end') { return $true }
+    -not $IsLatest
+}
+
 # Whether a session is over and ready to summarise:
 # - The player finished it (an "end" entry, from /jm end or Finish session): at once. Finishing also forces the chat log
 #   to disk, so a dungeon in it need not wait.
@@ -1163,7 +1171,7 @@ function Invoke-ClaudeCli([string]$ClaudePath, [string[]]$Arguments, [string]$Wo
 }
 
 Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Test-Coverage, Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
-    Get-Field, Add-EventEntries, Read-EventEntries, Remove-SessionEvents, ConvertFrom-SessionChange, Get-SessionMap, Set-SessionTitle, Get-Sessions, Test-HasInstance, Test-SessionFinished, Get-SessionFacts,
+    Get-Field, Add-EventEntries, Read-EventEntries, Remove-SessionEvents, ConvertFrom-SessionChange, Get-SessionMap, Set-SessionTitle, Get-Sessions, Test-HasInstance, Test-SessionFinished, Test-SessionFinishedByPlayer, Get-SessionFacts,
     Get-InstanceWindows, ConvertFrom-ChatLogStamp, ConvertFrom-ChatLogLine, ConvertFrom-SignalLine, Read-ChatLogWindows, Merge-ChatLog, Format-Money,
     Format-Entry, Format-RecordLines, Get-ShotLabel, Add-AccountPictures, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
     ConvertFrom-SummaryReply, Test-Grounded, Get-SessionFileName, Format-SessionLine, Format-SessionMarkdown, Read-SessionMarkdown,

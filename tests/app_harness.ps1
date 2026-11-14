@@ -290,6 +290,11 @@ JourneyMasterOther = nil
         [pscustomobject]@{ Caption = 'Level up, 20:55'; Path = '../screenshots/2026-11-13_205542-level.jpg'; Name = '2026-11-13_205542-level.jpg' },
         [pscustomobject]@{ Caption = 'Exploring Wetlands, 22:43'; Path = '../screenshots/2026-11-13_224357-zone.jpg'; Name = '2026-11-13_224357-zone.jpg' },
         [pscustomobject]@{ Caption = 'Level up, 23:26'; Path = '../screenshots/2026-11-13_232610-level.jpg'; Name = '2026-11-13_232610-level.jpg' })
+    $sessEnd = [pscustomobject]@{ Entries = @(@{ k = 'login' }, @{ k = 'end' }) }
+    $sessOpen = [pscustomobject]@{ Entries = @(@{ k = 'login' }, @{ k = 'note' }) }
+    True 'a session the player finished can be summarised' (Test-SessionFinishedByPlayer $sessEnd $true)
+    True 'an earlier session can be summarised' (Test-SessionFinishedByPlayer $sessOpen $false)
+    True 'the latest session, not finished, cannot' (-not (Test-SessionFinishedByPlayer $sessOpen $true))
     Check 'a stay beats level-ups' (Select-OverviewShot $sh).Name '2026-11-13_224357-zone.jpg'
     Check 'a boss beats a stay' (Select-OverviewShot ($sh + [pscustomobject]@{ Caption = 'Boss defeated, 23:00'; Path = '../screenshots/2026-11-13_230000-boss.jpg'; Name = '2026-11-13_230000-boss.jpg' })).Name '2026-11-13_230000-boss.jpg'
     Check 'only level-ups: the middle one' (Select-OverviewShot @($sh[0], $sh[2], $sh[0])).Name '2026-11-13_232610-level.jpg'
@@ -524,7 +529,15 @@ JourneyMasterOther = nil
     [IO.File]::AppendAllText($gameLog, (@(($stampNow + 'JMS:9-7:SUMMARISE:99:Baldrake Cavendell-LivingFlame'), ($stampNow + 'JMS:9-8:SUMMARISE:4:Baldrake Cavendell-LivingFlame')) -join "`r`n") + "`r`n", $Utf8)
     $out = & $runPlain ($T + 90200) 'yes' @('-SignalsFrom', "$from")
     True 'a request for a session the file does not hold is reported' ($out -match 'session 99, which the saved file does not hold')
-    True 'the requested session is summarised' ($out -match 'summarising session 4, as asked in the game' -and $out -match 'summarised session 4')
+    True 'a request for a session not finished is refused' ($out -match 'session 4 is not finished')
+    Check 'and nothing is summarised' @(Get-ChildItem (Join-Path $charDir 'sessions')).Count $sessionsBefore
+    # The player finishes session 4 (an end entry); the same request now succeeds.
+    $char.entries = @($session1 + $session2 + $long + @(@{ i = 54; s = 4; t = $T + 9000; k = 'login'; z = 'Elwynn Forest' },
+        @{ i = 55; s = 3; t = $T + 9200; k = 'note'; text = 'late'; z = 'Elwynn Forest' }, @{ i = 56; s = 4; t = $T + 9400; k = 'end'; z = 'Elwynn Forest' }))
+    $char.seq = 56
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    $out = & $runPlain ($T + 90250) 'yes' @('-SignalsFrom', "$from")
+    True 'the finished session is summarised' ($out -match 'summarising session 4, as asked in the game' -and $out -match 'summarised session 4')
     Check 'the requested session has its file' @(Get-ChildItem (Join-Path $charDir 'sessions')).Count ($sessionsBefore + 1)
     Check 'one summary call and one overview call for it' (@(Get-ChildItem $calls).Count - $before) 2
     $out = & $runPlain ($T + 90300) 'yes' @('-SignalsFrom', "$from")

@@ -137,12 +137,14 @@ function Signal.DeleteSession(s)
     return true
 end
 
--- The Summarise button: notes the request. It does not end the session (ending is the Finish session button, which also
--- starts a new session). The caller then reloads the interface, which makes the game write the record to disk;
--- SendSummaryRequests tells the app at the next login. Returns false and the reason when there is nothing to summarise.
+-- The Summarise button: notes the request. Only a finished session can be summarised: the session in progress must be
+-- finished first (the Finish session button, which also starts a new session); Summarise itself ends nothing. The caller
+-- then reloads the interface, which makes the game write the record to disk; SendSummaryRequests tells the app at the
+-- next login. Returns false and the reason when the session cannot be summarised.
 function Signal.RequestSummary(s)
     local c = rec().Char()
     if not c then return false, "no character loaded yet." end
+    if s == c.session and not c.endSession then return false, "this session is still in progress: finish it first (Finish session)." end
     if #Core.SessionEntries(c.entries or {}, s) == 0 then return false, "nothing recorded in this session yet." end
     Core.RequestSummary(c, s, time())
     return true

@@ -145,6 +145,7 @@ local function showFooter()
     local shots = perSession and hasShots(item)
     local edit = perSession and item ~= nil
     local summarise = perSession and item ~= nil and item.state == "pending" and not item.requested and (item.entries or 0) > 0
+        and not isCurrent(item) -- only a finished session; the one in progress has Finish session first
     footer.summarise:SetShown(summarise)
     footer.reload:SetShown(not summarise)
     local anchor = summarise and footer.summarise or footer.reload
@@ -167,7 +168,7 @@ local function requestShots()
 end
 Window.RequestShots = requestShots
 
--- The Summarise button: the app summarises nothing on its own. This notes the request (it does not end the session) and
+-- The Summarise button, for a finished session: the app summarises nothing on its own. This notes the request and
 -- reloads the interface, so the game writes the record to disk; the signal to the app follows at login.
 local function summarise()
     local item = currentItem()
@@ -494,13 +495,13 @@ local function create()
     footer.summarise:SetPoint("RIGHT", -10, -1)
     footer.summarise:Hide()
     UI.Tooltip(footer.summarise, "Summarise this session",
-        "The app on your PC writes this session's summary from what is recorded so far. Nothing is summarised on its own. This reloads the interface, so the game writes the record to disk, and does not end the session. What you record after the reload is not in the summary. The app must be running (it can stay in the background). Reload again when the app has finished, to see the summary.")
+        "The app on your PC writes this session's summary. Only a finished session can be summarised (the one in progress needs Finish session first), and nothing is summarised on its own. This reloads the interface, so the game writes the record to disk. The app must be running (it can stay in the background). Reload again when the app has finished, to see the summary.")
     footer.shots = UI.FlatButton(footer, "Open screenshots", "GameFontNormalSmall", C.raised, C.edge, C.soft, 10, 20)
     footer.shots:SetScript("OnClick", requestShots)
     footer.shots:Hide()
     UI.Tooltip(footer.shots, "Open screenshots on PC",
         "The JourneyMaster app on your PC opens this session's screenshots in File Explorer, a few seconds after the click. The app must be running.")
-    footer.finish = UI.FlatButton(footer, "Finish session", "GameFontNormalSmall", C.raised, C.edge, C.soft, 10, 20)
+    footer.finish = UI.FlatButton(footer, "Finish session", "GameFontNormalSmall", C.finish, C.finishEdge, C.finishText, 10, 20)
     footer.finish:SetScript("OnClick", finishSession)
     footer.finish:Hide()
     UI.Tooltip(footer.finish, "Finish this session",
