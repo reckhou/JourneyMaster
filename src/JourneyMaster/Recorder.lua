@@ -457,7 +457,13 @@ local function onNpc(event, msg, speaker)
     if not body then return end
     if body:find("%s", 1, true) then body = body:gsub("%%s", who or "Someone") end -- emotes name their speaker as %s
     if Core.SeenRecently(recent, who, body, now()) then return end
-    Add({ k = "npc", ch = ch, who = who, text = body })
+    -- The player's own pet or minion speaks as an NPC. A speaker with the current pet's name is marked as the player's
+    -- own, with its kind ("Voidwalker", "Wolf") and whether it spoke during a fight (stock battle cries come then).
+    local pet = short(call(UnitName, "pet"))
+    local own = (who ~= nil and who == pet) or nil
+    local fam = own and text(call(UnitCreatureFamily, "pet"), 40) or nil
+    local fight = own and (call(UnitAffectingCombat, "player") or call(UnitAffectingCombat, "pet")) and true or nil
+    Add({ k = "npc", ch = ch, who = who, text = body, own = own, fam = fam, fight = fight })
 end
 
 -- Deaths and bosses -----------------------------------------------------------------------------------------------

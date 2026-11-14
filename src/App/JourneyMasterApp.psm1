@@ -376,9 +376,11 @@ function Merge-ChatLog($Entries, $LogLines, [string]$Player, $Players) {
     if ($Player) { $known[$Player] = $true }
     foreach ($l in @($LogLines)) { if ($l.Kind -eq 'chat') { $known[$l.Who] = $true } }
     $spoken = @{}
+    $pets = @{}   # the character's own pets seen by the add-on in this session: name -> kind
     $deaths = New-Object Collections.Generic.List[long]
     foreach ($e in @($Entries)) {
         $k = Get-Field $e 'k'
+        if ($k -eq 'npc' -and (Get-Field $e 'own')) { $pets[[string](Get-Field $e 'who')] = Get-Field $e 'fam' }
         if ($k -eq 'chat' -or $k -eq 'npc') { $spoken["$(Get-Field $e 'who')`n$(Get-Field $e 'text')"] = [long](Get-Field $e 't') }
         if ($k -eq 'death') { $deaths.Add([long](Get-Field $e 't')) }
     }
@@ -390,6 +392,11 @@ function Merge-ChatLog($Entries, $LogLines, [string]$Player, $Players) {
             { $_ -eq 'chat' -or $_ -eq 'said' } {
                 $key = "$($l.Who)`n$($l.Text)"
                 if ($spoken.ContainsKey($key) -and [Math]::Abs($spoken[$key] - $l.T) -le 10) { break }
+                # The log does not say whose pet a speaker is: a name the add-on saw as the character's own pet is taken as it.
+                if ($l.Kind -eq 'said' -and $pets.ContainsKey([string]$l.Who)) {
+                    $added.Add([ordered]@{ t = $l.T; k = 'npc'; ch = $l.Ch; who = $l.Who; text = $l.Text; own = $true; fam = $pets[[string]$l.Who]; z = $win; src = 'log' })
+                    break
+                }
                 # Group members are players. Anyone else saying or yelling may be an NPC (a boss) or a passing player:
                 # the log does not say, so the record does not either.
                 $isPlayer = $l.Kind -eq 'chat' -or $known.ContainsKey($l.Who) -or $known.ContainsKey(($l.Who -split ' ')[0])
@@ -471,9 +478,17 @@ function Format-Entry($Entry, [string]$Player) {
             return "Quest $title."
         }
         # Speech of NPCs, bosses and pets (a warlock's minions speak as NPCs) is background only: the narrator rules say
-        # not to report it (owner's decision, 13 November 2026).
+        # not to report it (owner's decision, 13 November 2026). The character's own pet or minion is the exception
+        # (owner's decision, 14 November 2026): it is a companion in the story, told with its kind, and a line said
+        # during a fight is marked, because the creature's stock battle cries come then.
         'npc' {
             $verb = switch (& $f 'ch') { 'yell' { 'yelled' } 'whisper' { 'whispered' } 'emote' { 'emote' } default { 'said' } }
+            if (& $f 'own') {
+                $kind = if (& $f 'fam') { ", a $(& $f 'fam')" } else { '' }
+                $fight = if (& $f 'fight') { ' during a fight' } else { '' }
+                if ($verb -eq 'emote') { return "(Emote of $who, the character's own minion$kind$fight$fromLog) $(& $f 'text')" }
+                return "$who (the character's own minion$kind) $verb$fight$fromLog`: $(Format-Quote (& $f 'text'))"
+            }
             if ($verb -eq 'emote') { return "[background] (NPC emote$fromLog) $(& $f 'text')" }
             return "[background] $who (NPC) $verb$fromLog`: $(Format-Quote (& $f 'text'))"
         }
@@ -602,7 +617,8 @@ function Get-LoreText([string]$LoreDir, $Zones, $Subzones, [int]$MaxChars = 1200
 # The narrator ------------------------------------------------------------------------------------------------------------
 
 # The narrator's rules (the system prompt), the same for every character: a novel's voice (owner's decision,
-# 13 November 2026, replacing the plan's plain chronicle), held to the record by the faithfulness rules.
+# 13 November 2026, replacing the plan's plain chronicle). Since 14 November 2026 it is a hero's tale: the events
+# stay fixed by the "Facts" rules, whilst the telling may be heightened and the narrator may judge other players.
 function Get-NarratorRules {
 @'
 You write one chapter of a novel: the story of one play session of a character in World of Warcraft (the WoW: Forever server). You are given the session's record, written by an add-on and in places filled from the game's chat log.
@@ -610,25 +626,34 @@ You write one chapter of a novel: the story of one play session of a character i
 Style and tone:
 - Write it like a novel: third person, past tense, flowing narrative prose with a sense of place, pace and scene. British English.
 - Set each scene: where the character was and what the place was like, drawn from the zone names and the lore notes. Let the events carry the story, with turning points (a level, a death, a dungeon, a hard-won quest) given their weight.
-- Spoken words of other players may appear as dialogue in quotation marks, exactly as recorded.
-- No first person, no jokes, no addressing the reader. Rich, but never purple: every flourish must rest on a fact from the record or the lore notes.
+- This is a hero's tale told for pleasure, not a report. Heighten the telling: give the character feelings, resolve, weariness and doubt that fit the events, and describe how a fight felt, the weather, the light and the mood of a place. A narrow win may be told as a desperate one.
+- Humour is welcome: dry wit and irony that arise from the events. No puns and no modern or real-world references.
+- No first person and no addressing the reader.
 - The character's name, race, class and level are facts and may appear. Use "he" or "she" for the character only when the session facts give the character's sex; otherwise use the name or "they".
 - The record does not hold anyone else's sex: refer to other people by name or as "they".
 
-Faithfulness:
-- State only what the record holds. Do not invent events, motives, feelings, thoughts or dialogue.
-- Every person, place, item, quest, creature and number you name must appear in the record (or, for places, in the lore notes). If the record does not say why something happened, do not say why.
+Facts:
+- The events are fixed: who was there, where it happened, what happened and in what order, and every level, death, quest, item and number. Do not add an event, remove a turning point or change an outcome. A defeat stays a defeat.
+- Every person, place, item, quest, creature and number you name must appear in the record (or, for places, in the lore notes).
+- You may imagine what the character felt, but not the cause of an event. If the record does not say why a player left or why a plan changed, do not say why.
 - The quest text explains why a quest was taken; you may say what the quest asked, in your own words.
 - Lore notes are background only, so that places are described correctly. Never take events from them.
-- Lines marked [background] are what NPCs, bosses and pets (such as a warlock's minions) said or emoted. They are context only, to help you understand what was happening. Do not report, quote or paraphrase them, and do not mention a speaker only because of them.
+- Lines marked [background] are what NPCs, bosses and other people's pets said or emoted. They are context only, to help you understand what was happening. Do not report, quote or paraphrase them, and do not mention a speaker only because of them.
 - Lines marked "hidden from the add-on" mean the game hid what was said; do not guess at it. You may say only that what was said there is not known.
 - Write about the events, not about your sources: never mention the record, the add-on, the chat log, the lore notes or the parts of a long session.
 - If something did not happen or was not recorded, leave it out. Do not write that the record shows nothing, or that nothing more is known.
 - A death with no killer recorded has no known killer. Do not name one.
 
+The character's minion:
+- Lines marked "the character's own minion" are the words and emotes of the character's pet or summoned minion, with its kind (such as Voidwalker, Succubus, Wolf or Bear) when known. The minion is a companion in the story, not background: name it, say what kind of creature it is, and let it speak and act as a character beside the hero.
+- Its words follow the same rule as a player's: reported speech or a direct quotation, and words inside quotation marks must be its own. You may give it a manner drawn from what it says, but no deeds or words the record does not hold.
+- A minion line marked "during a fight" may be one of the creature's stock battle cries and not conversation. Tell such a line at most once and in passing, and do not treat it as an answer to anyone unless it plainly is one.
+
 Other players:
-- Name them as recorded and tell what they did and said, as dialogue or as reported speech.
-- Never judge or characterise anyone, and never give anyone feelings or thoughts the record does not hold.
+- Name only the players who shaped the session: those who fought beside the character, traded, helped, hindered or had a real exchange. Leave out a player who passed through and said a word or two, or mention them in passing without a name.
+- What they did and said is fixed. Do not invent deeds, words, thoughts or feelings for them.
+- Judge them freely by what they did and said, for good or ill: a player who helped may be called generous, and one who behaved badly may be called exactly what the behaviour deserves. Every judgement must rest on a recorded deed or word.
+- Tell their speech as reported speech by default. Use a direct quotation only when a line has weight or character. Words inside quotation marks must be the player's own: you may correct capital letters, punctuation and plain typing mistakes, and nothing else.
 - Leave out out-of-character talk: text in brackets or double brackets, such as (( brb )) or (ooc), and game-mechanics chatter such as "lfg" or "inv".
 - Leave out trade and recruitment adverts and other chatter that has nothing to do with the character.
 
@@ -1088,8 +1113,8 @@ function Get-OverviewRules([switch]$Continue) {
     $text = @'
 You write the overview of a character's journey in World of Warcraft (the WoW: Forever server), built only from the chapters written for its play sessions, which you are given in order.
 
-- Write it like a novel: third person, past tense, flowing narrative prose, British English. No first person, no jokes, no addressing the reader; every flourish must rest on the entries.
-- State only what the entries hold. Do not invent events, motives, feelings or dialogue, and do not add lore.
+- Write it like a novel, a hero's tale told for pleasure: third person, past tense, flowing narrative prose, British English. Dry wit and irony that arise from the events are welcome. No first person, no puns, no modern or real-world references, no addressing the reader.
+- The events are fixed: tell only events the entries hold, and do not change an outcome, invent dialogue or add lore. You may heighten the telling, and carry forward the character's feelings and the judgements of other players that the entries hold.
 - Every person, place, quest and number you name must appear in the entries.
 - Write one section for each entry, in the order given. Start each section with a heading line: two hash signs, a space, and the entry's title exactly as given (without the line in brackets after it). Under it, a few paragraphs of prose that tell that session's part of the journey: where the character went, what it did and with whom, the turning points (levels, deaths, dungeons, bosses). Leave out small detail.
 - Prose only under each heading: no lists, no other headings.

@@ -211,7 +211,11 @@ JourneyMasterOther = nil
     Check 'death without killer' (Format-Entry @{ k = 'death'; z = 'Duskwood' } $P) 'Baldrake Cavendell died in Duskwood.'
     Check 'own say' (Format-Entry @{ k = 'chat'; ch = 'say'; who = $P; text = 'hello' } $P) 'Baldrake Cavendell (the character) said: "hello"'
     Check 'npc from log' (Format-Entry @{ k = 'npc'; ch = 'yell'; who = 'Bazil Thredd'; text = 'Lads!'; src = 'log' } $P) '[background] Bazil Thredd (NPC) yelled (from the chat log): "Lads!"'
-    Check 'pet speech is background' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'As you command.' } $P) '[background] Zigzag (NPC) said: "As you command."'
+    Check 'unmarked pet speech is background' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'As you command.' } $P) '[background] Zigzag (NPC) said: "As you command."'
+    Check 'own minion speaks as a companion' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'The master asks too much.'; own = $true; fam = 'Voidwalker' } $P) 'Zigzag (the character''s own minion, a Voidwalker) said: "The master asks too much."'
+    Check 'own minion line during a fight' (Format-Entry @{ k = 'npc'; ch = 'say'; who = 'Zigzag'; text = 'As you command.'; own = $true; fam = 'Voidwalker'; fight = $true } $P) 'Zigzag (the character''s own minion, a Voidwalker) said during a fight: "As you command."'
+    Check 'own minion emote' (Format-Entry @{ k = 'npc'; ch = 'emote'; who = 'Zigzag'; text = 'Zigzag bows.'; own = $true } $P) '(Emote of Zigzag, the character''s own minion) Zigzag bows.'
+    True 'narrator told the minion is a companion' ((Get-NarratorRules) -match 'own minion.*companion in the story')
     True 'narrator told not to report background lines' ((Get-NarratorRules) -match 'Lines marked \[background\].*Do not report, quote or paraphrase them')
     Check 'gap' (Format-Entry @{ k = 'gap'; what = 'chat lines'; n = 3 } $P) '[3 chat lines here were hidden from the add-on by the game.]'
     True 'reload left out' ($null -eq (Format-Entry @{ k = 'login'; reload = $true } $P))

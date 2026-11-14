@@ -300,6 +300,18 @@ n = count()
 fire("CHAT_MSG_MONSTER_YELL", "Forward!", "Town Crier")
 eq(count(), n, "NPC speech switched off")
 c.settings.npcSpeech = true
+eq(last().own, nil, "an NPC is not the player's own minion")
+W.pet = { name = "Zigzag", family = "Voidwalker" }
+fire("CHAT_MSG_MONSTER_SAY", "The master asks too much of me.", "Zigzag")
+eq(last().own, true, "the player's pet is marked as its own") eq(last().fam, "Voidwalker", "the pet's kind is recorded")
+eq(last().fight, nil, "no fight, no fight mark")
+W.combat = true
+fire("CHAT_MSG_MONSTER_SAY", "As you command.", "Zigzag")
+eq(last().fight, true, "a pet line during a fight is marked")
+fire("CHAT_MSG_MONSTER_SAY", "Die!", "Defias Thug")
+eq(last().own, nil, "another speaker during a fight is not the pet")
+W.combat = false
+W.pet = nil
 
 -- Quests -----------------------------------------------------------------------------------------------------------
 tick()

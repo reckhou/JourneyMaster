@@ -103,9 +103,13 @@ issecretvalue = function(v) return W.secret[v] == true end
 UnitName = function(unit)
     if unit == "player" then return "Baldrake Cavendell" end
     if unit == "questnpc" or unit == "npc" then return W.quest.giver end
+    if unit == "pet" then return W.pet and W.pet.name or nil end
     local i = tonumber(unit:match("^party(%d)$") or "")
     return i and W.group[i] or nil
 end
+-- The player's pet: W.pet = { name, family }, or nil for none. W.combat: the player is in a fight.
+UnitCreatureFamily = function(unit) return unit == "pet" and W.pet and W.pet.family or nil end
+UnitAffectingCombat = function() return W.combat and true or false end
 GetRealmName = function() return "Living Flame" end
 UnitClass = function() return "Warlock", "WARLOCK" end
 UnitRace = function() return "Human", "Human" end
