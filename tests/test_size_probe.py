@@ -78,12 +78,18 @@ def test_file_is_about_four_times_the_text():
 
 
 FRAME_STUBS = """
+-- A stand-in for the game's widgets. Like the real game (seen on 14 November 2026), a font string keeps at most
+-- 29,997 bytes of the text it is given. SCROLL_RANGE and CHILD_KEPT are what the tests want the scroll area to report.
+SCROLL_RANGE, CHILD_KEPT = 1e9, nil
 local function widget()
     local w = {}
     return setmetatable(w, { __index = function(t, k)
-        if k == "GetStringHeight" then return function() return 1234 end end
-        if k == "SetText" then return function(self, s) self.text = s end end
-        if k == "GetText" then return function(self) return self.text end end
+        if k == "GetStringHeight" then return function() return 100 end end
+        if k == "SetText" then return function(self, s) rawset(self, "text", #s > 29997 and s:sub(1, 29997) or s) end end
+        if k == "GetText" then return function(self) return rawget(self, "text") end end
+        if k == "SetHeight" then return function(self, h) rawset(self, "h", CHILD_KEPT or h) end end
+        if k == "GetHeight" then return function(self) return rawget(self, "h") or 400 end end
+        if k == "GetVerticalScrollRange" then return function() return SCROLL_RANGE end end
         return function() return widget() end
     end })
 end
@@ -95,23 +101,50 @@ DEFAULT_CHAT_FRAME = { AddMessage = function() end }
 """
 
 
-def test_the_window_test_draws_a_level_and_records_it():
-    with tempfile.TemporaryDirectory() as tmp:
-        folder = Path(tmp) / "JourneySizeProbe"
-        size_probe.build(folder, SMALL)
-        runtime = LuaRuntime()
-        runtime.execute(STUBS + FRAME_STUBS)
-        ns = runtime.eval("{}")
-        load = runtime.eval(LOADER)
-        for name in ["Start.lua", "Manifest.lua", "Data_016K.lua", "Data_040K.lua", "Report.lua"]:
-            load((folder / name).read_text(encoding="ascii"), name, ns)
-        ns.Run()
-        record = size_probe.to_py(ns.ShowTest("040K"))
-        assert record["ok"] and record["gotOk"] and record["height"] == 1234
-        db = size_probe.to_py(ns.db)
-        assert db["display"][0]["name"] == "040K"
-        assert "| yes | 1234 |" in size_probe.render(db)
-        assert ns.ShowTest("nope") is None
+def loaded_with_frames(names=("016K", "040K")):
+    folder = Path(tempfile.mkdtemp()) / "JourneySizeProbe"
+    size_probe.build(folder, [l for l in SMALL if l[0] in names])
+    runtime = LuaRuntime()
+    runtime.execute(STUBS + FRAME_STUBS)
+    ns = runtime.eval("{}")
+    load = runtime.eval(LOADER)
+    for name in ["Start.lua", "Manifest.lua"] + [f"Data_{n}.lua" for n in names] + ["Report.lua"]:
+        load((folder / name).read_text(encoding="ascii"), name, ns)
+    ns.Run()
+    return runtime, ns
+
+
+def test_one_font_string_test_records_a_cut():
+    runtime, ns = loaded_with_frames()
+    small = size_probe.to_py(ns.ShowTest("016K"))
+    big = size_probe.to_py(ns.ShowTest("040K"))
+    assert small["ok"] and small["gotOk"]
+    assert big["ok"] and not big["gotOk"] and big["gotLen"] == 29997
+    text = size_probe.render(size_probe.to_py(ns.db))
+    assert "| whole |" in text and "CUT to 29,997 bytes" in text
+    assert "Largest level kept whole in one font string: 016K" in text
+    assert ns.ShowTest("nope") is None
+
+
+def test_paragraph_test_records_height_and_reach():
+    runtime, ns = loaded_with_frames()
+    r = size_probe.to_py(ns.BlocksTest("040K"))
+    assert r["ok"] and r["changed"] == 0 and r["paragraphs"] > 20 and r["lastHasMarker"]
+    assert r["reach"] is True and r["childHeight"] == r["height"] + 10
+    text = size_probe.render(size_probe.to_py(ns.db))
+    assert "whole, end reachable" in text
+    assert "Largest level kept whole as stacked paragraphs, with the end reachable: 040K" in text
+
+
+def test_paragraph_test_notices_a_clamped_height():
+    runtime, ns = loaded_with_frames()
+    runtime.globals().SCROLL_RANGE = 500   # the area scrolls far less than the stacked height
+    runtime.globals().CHILD_KEPT = 4000    # and the game kept only part of the height
+    r = size_probe.to_py(ns.BlocksTest("040K"))
+    assert r["reach"] is False and r["childHeight"] == 4000
+    text = size_probe.render(size_probe.to_py(ns.db))
+    assert "END NOT REACHABLE" in text
+    assert "with the end reachable: none." in text
 
 
 def main():

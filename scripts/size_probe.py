@@ -10,7 +10,8 @@ Usage (from the repository root):
     python scripts/size_probe.py remove [--addons PATH]                        # delete the add-on again
 
 In the game: run /console scriptErrors 1 first, so a file the game cannot read shows its error. Log in, read the chat
-lines, then /jmsize show <name> for each level in turn, smallest first (a large text may freeze the game for a while).
+lines, then /jmsize show <name> (one font string) and /jmsize blocks <name> (stacked paragraphs, as the journal draws) for each
+level in turn, smallest first (a large text may freeze the game for a while).
 Then /reload and run the report.
 
 Abbreviations: SV = SavedVariables. KB = 1,024 bytes. Lupa = Lua 5.1 in Python (development only), which reads the SV file.
@@ -135,39 +136,65 @@ def find_sv():
     return hits[0] if hits else None
 
 
+def single_cell(d):
+    """What the one-font-string test showed for a level."""
+    if not d:
+        return "not tried"
+    if not d.get("ok"):
+        return f"FAILED: {d.get('err')}"
+    return "whole" if d.get("gotOk") else f"CUT to {d.get('gotLen'):,} bytes"
+
+
+def blocks_cell(d):
+    """What the paragraph-by-paragraph test showed for a level."""
+    if not d:
+        return "not tried"
+    if d.get("changed"):
+        return f"{d['changed']} paragraphs CUT"
+    if d.get("reach") is None:
+        return "drawn; scroll range not recorded"
+    height = f"{d.get('childHeight') or 0:,.0f} of {d.get('height') or 0:,.0f} px kept"
+    return ("whole, end reachable, " if d.get("reach") else "END NOT REACHABLE, ") + height
+
+
+NL = chr(10)
+
+
 def render(db):
     levels = db.get("levels") or []
-    display = {d.get("name"): d for d in (db.get("display") or []) if isinstance(d, dict)}
+    single, blocks = {}, {}
+    for d in (db.get("display") or []):
+        if isinstance(d, dict):
+            (blocks if d.get("mode") == "blocks" else single)[d.get("name")] = d  # the last run of each level wins
     build_info = db.get("build") or {}
     memory = db.get("addonMemKB") or db.get("memEndKB") or 0
     lines = ["# JourneySizeProbe results", "",
              f"Game build {build_info.get('version')} ({build_info.get('build')}). "
              f"All files read in {db.get('totalLoadMs') or 0:.0f} ms; the add-on holds {memory:,.0f} KB of memory.",
-             "", "| Level | Text bytes | File bytes | Loaded | Intact | Read in (ms) | Drawn in a window | Height (px) | SetText (ms) |",
-             "|---|---|---|---|---|---|---|---|---|"]
-    best_loaded = best_drawn = None
+             "", "| Level | Text bytes | File bytes | Loaded | Intact | Read in (ms) | One font string | Paragraphs, stacked |",
+             "|---|---|---|---|---|---|---|---|"]
+    best_loaded = best_single = best_blocks = None
     for r in levels:
         loaded = bool(r.get("loaded"))
         intact = loaded and bool(r.get("lenOk")) and bool(r.get("sumOk"))
-        d = display.get(r.get("name"))
+        name = r.get("name")
         if intact:
-            best_loaded = r["name"]
-        drawn = "not tried"
-        if d:
-            drawn = "yes" if d.get("ok") and d.get("gotOk") else ("changed" if d.get("ok") else f"FAILED: {d.get('err')}")
-            if drawn == "yes":
-                best_drawn = r["name"]
-        lines.append("| {} | {:,} | {:,} | {} | {} | {} | {} | {} | {} |".format(
-            r.get("name"), r.get("expectedBytes") or 0, r.get("sourceBytes") or 0,
+            best_loaded = name
+        if single.get(name, {}).get("gotOk"):
+            best_single = name
+        b = blocks.get(name)
+        if b and not b.get("changed") and b.get("reach"):
+            best_blocks = name
+        lines.append("| {} | {:,} | {:,} | {} | {} | {} | {} | {} |".format(
+            name, r.get("expectedBytes") or 0, r.get("sourceBytes") or 0,
             "yes" if loaded else "NO", ("yes" if intact else "NO") if loaded else "-",
-            f"{r['parseMs']:.0f}" if r.get("parseMs") is not None else "?", drawn,
-            f"{d['height']:.0f}" if d and d.get("height") else "-",
-            f"{d['setTextMs']:.0f}" if d and d.get("setTextMs") is not None else "-"))
+            f"{r['parseMs']:.0f}" if r.get("parseMs") is not None else "?", single_cell(single.get(name)), blocks_cell(b)))
     lines += ["", f"Largest level that loaded intact: {best_loaded or 'none'}.",
-              f"Largest level drawn whole in a window: {best_drawn or 'none tried'}.",
+              f"Largest level kept whole in one font string: {best_single or ('none' if single else 'none tried')}.",
+              f"Largest level kept whole as stacked paragraphs, with the end reachable: {best_blocks or ('none' if blocks else 'none tried')}.",
               "", "A level that did not load, or arrived changed, marks the game's limit. Its error, if any, shows with /console scriptErrors 1.",
-              "The window test also needs a look: scroll to the end and check the END MARKER line is there."]
-    return "\n".join(lines) + "\n"
+              "The window tests also need a look: scroll to the end and check the END MARKER line is there."]
+    return NL.join(lines) + NL
 
 
 def main(argv=None):
