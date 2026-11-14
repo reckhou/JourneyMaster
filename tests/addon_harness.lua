@@ -555,6 +555,7 @@ W.system = {}
 ns.Window.Show()
 ns.Window.Select(sPend)
 check(pendingItem().inProgress, "the session in progress is marked as such")
+check(ns.Window.Footer().finish:IsShown() and not ns.Window.Footer().reload:IsShown(), "the session in progress shows Finish session and no Reload")
 local refused, why = ns.Signal.RequestSummary(sPend)
 eq(refused, false, "a session in progress cannot be summarised")
 check(why and why:find("Finish session", 1, true), "the refusal says to finish it first")
@@ -564,6 +565,7 @@ ns.Command("end") -- finished: Summarise may now be used
 W.RunSignalTickers()
 W.system = {}
 check(not pendingItem().inProgress, "a finished session is no longer in progress")
+check(ns.Window.Footer().summarise:IsShown() and not ns.Window.Footer().reload:IsShown(), "a finished session shows Summarise in place of Reload")
 local entriesBefore = #c.entries
 local reloadsBefore = W.reloads
 ns.Window.Summarise()

@@ -134,7 +134,8 @@ local function isCurrent(item)
 end
 
 -- The foot: the counts on the left, then the buttons from the right: Summarise for a session not summarised yet (it takes
--- the place of Reload), else Reload; then Finish session, Open screenshots, Delete and Rename when they apply.
+-- the place of Reload), else Reload (not for the session in progress); then Finish session, Open screenshots, Delete and
+-- Rename when they apply.
 local function showFooter()
     local c = rec().Char()
     local n = c and #c.entries or 0
@@ -146,14 +147,19 @@ local function showFooter()
     local edit = perSession and item ~= nil
     local summarise = perSession and item ~= nil and item.state == "pending" and not item.requested and (item.entries or 0) > 0
         and not isCurrent(item) -- only a finished session; the one in progress has Finish session first
+    -- A session in progress has no Reload (it has nothing to load yet): Finish session comes first, then Summarise.
+    local reload = not summarise and not finish
     footer.summarise:SetShown(summarise)
-    footer.reload:SetShown(not summarise)
-    local anchor = summarise and footer.summarise or footer.reload
+    footer.reload:SetShown(reload)
+    local anchor = summarise and footer.summarise or reload and footer.reload or nil -- the rightmost button shown
     for _, b in ipairs({ { footer.finish, finish }, { footer.shots, shots }, { footer.delete, edit }, { footer.rename, edit } }) do
         b[1]:SetShown(b[2])
-        if b[2] then b[1]:SetPoint("RIGHT", anchor, "LEFT", -6, 0) anchor = b[1] end
+        if b[2] then
+            if anchor then b[1]:SetPoint("RIGHT", anchor, "LEFT", -6, 0) else b[1]:SetPoint("RIGHT", footer, "RIGHT", -10, -1) end
+            anchor = b[1]
+        end
     end
-    footer.text:SetPoint("RIGHT", anchor, "LEFT", -10, 0)
+    if anchor then footer.text:SetPoint("RIGHT", anchor, "LEFT", -10, 0) else footer.text:SetPoint("RIGHT", footer, "RIGHT", -10, 0) end
 end
 
 -- The "Open screenshots" button: the add-on cannot open folders, so it signals the app through the chat log (Signal.lua).
@@ -568,6 +574,7 @@ function Window.OnNewEntry()
 end
 
 -- For the offline harness.
+Window.Footer = function() return footer end
 Window.State = function() return { tab = tab, selected = selected, filter = filter, items = list.items } end
 Window.Select = function(s) selected = s Window.Refresh() end
 Window.SelectTab = function(name) selectTab(name) end
