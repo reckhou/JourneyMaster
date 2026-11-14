@@ -155,6 +155,23 @@ eq(Core.Trim(t, 8, 2), 4, "stored entries of older sessions removed")
 eq(t.entries[1].s, 3, "newest two sessions kept")
 eq(Core.Trim(t, 0, 2), 0, "nothing stored: nothing trimmed")
 
+-- Deleted sessions do not count towards the kept ones, and their stored entries go.
+local d = Core.Char({}, "D-R")
+for sess = 1, 4 do
+    Core.Append(d, { k = "login" }, T + sess * 10000)
+    Core.Append(d, { k = "note", text = "s" .. sess }, T + sess * 10000 + 5)
+end
+eq(Core.Trim(d, 8, 2, { [4] = true }), 4, "deleted newest session trimmed with the oldest")
+eq(d.entries[1].s, 2, "the two newest sessions not deleted are kept")
+eq(#d.entries, 4, "sessions 2 and 3 kept")
+
+-- The old default of 5 kept sessions becomes the new default once; a later choice of 5 stays.
+local oldDb = { characters = { ["O-R"] = { entries = {}, settings = { keepSessions = 5 } } } }
+eq(Core.Char(oldDb, "O-R").settings.keepSessions, Core.DEFAULTS.keepSessions, "saved old default raised")
+oldDb.characters["O-R"].settings.keepSessions = 5
+eq(Core.Char(oldDb, "O-R").settings.keepSessions, 5, "a chosen 5 stays")
+eq(Core.Char({}, "N-R").settings.keepSessions, 20, "new default is 20")
+
 -- Sessions and display.
 local sessions = Core.Sessions(c.entries)
 eq(#sessions, 3, "three sessions")

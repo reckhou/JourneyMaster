@@ -204,7 +204,11 @@ function Rec.Start(db)
     local snap = ns.journalSnapshot and ns.journalSnapshot.characters and ns.journalSnapshot.characters[Core.CharKey(name, realm)]
     if snap and tonumber(snap.confirmed) then
         char.confirmed = math.max(char.confirmed or 0, tonumber(snap.confirmed))
-        Core.Trim(char, char.confirmed, Rec.Setting("keepSessions"))
+        -- Deleted sessions, by the game or by the app, do not take the place of a kept session.
+        local deleted = {}
+        for s in pairs(char.deleted or {}) do deleted[s] = true end
+        for _, s in ipairs(snap.deleted or {}) do deleted[s] = true end
+        Core.Trim(char, char.confirmed, Rec.Setting("keepSessions"), deleted)
     end
     if char.moneyMark == 0 then char.moneyMark = Core.MoneyMilestone(call(GetMoney) or 0) or 0 end
     -- Without chat logging the app cannot fill dungeons and raids, so a failure here must be seen.

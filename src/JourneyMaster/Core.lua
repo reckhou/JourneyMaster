@@ -69,7 +69,7 @@ Core.DEFAULTS = {
     screenshots = true,
     reloadPrompt = false,  -- after a long session, offer a /reload so a crash cannot lose it
     reloadHours = 2,
-    keepSessions = 5,      -- newest sessions whose raw entries stay in the add-on after the app has stored them
+    keepSessions = 20,     -- newest sessions whose raw entries stay in the add-on after the app has stored them (deleted ones do not count)
     aiModel = "opus",      -- the AI model the app summarises with (a `claude` command alias)
     aiEffort = "low",      -- and its effort level
 }
@@ -264,6 +264,12 @@ function Core.Char(db, key)
     c.zonesVisited = c.zonesVisited or {}
     c.subzonesVisited = c.subzonesVisited or {}
     c.skills = c.skills or {}
+    -- The default was 5 until 14 November 2026, and defaults are saved with the settings: a saved 5 becomes the new default
+    -- once. A player who wants 5 again can type /jm keep 5.
+    if not c.keepRaised then
+        if c.settings.keepSessions == 5 then c.settings.keepSessions = nil end
+        c.keepRaised = true
+    end
     for k, v in pairs(Core.DEFAULTS) do
         if c.settings[k] == nil then c.settings[k] = v end
     end
@@ -348,13 +354,15 @@ function Core.SeenRecently(recent, who, text, now)
 end
 
 -- Removes entries the app has stored (number up to `confirmed`), except those in the newest `keep` sessions, so the
--- Log tab can still show recent sessions. Returns how many were removed.
-function Core.Trim(c, confirmed, keep)
+-- Log tab can still show recent sessions. Sessions in `deleted` (session number -> true) do not count towards `keep`,
+-- and their stored entries go. Returns how many were removed.
+function Core.Trim(c, confirmed, keep, deleted)
     confirmed = tonumber(confirmed) or 0
     if confirmed <= 0 then return 0 end
     keep = keep or Core.DEFAULTS.keepSessions
     local sessions = {}
-    for _, e in ipairs(c.entries) do sessions[e.s] = true end
+    deleted = deleted or {}
+    for _, e in ipairs(c.entries) do if not deleted[e.s] then sessions[e.s] = true end end
     local list = {}
     for s in pairs(sessions) do list[#list + 1] = s end
     table.sort(list, function(a, b) return a > b end)
