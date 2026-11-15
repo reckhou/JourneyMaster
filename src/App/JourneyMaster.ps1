@@ -44,6 +44,7 @@ param(
     [long]$Restore = 0,        # only put deleted session <n> back (of -Character, when more than one has it), then stop
     [string]$Character,        # the character key ("Name-Realm") for -Restore
     [switch]$NoOverview,
+    [switch]$Republish,        # in a single run, write the game's snapshot again even when nothing changed (for example after a size cap changed)
     [switch]$NoExplorer,
     [long]$SignalsFrom = -1,   # for tests: in a single run, also act on chat log signals from this byte on       # do not open File Explorer for the game's "Open screenshots on PC" button (for tests)
     [ValidateSet('auto', 'yes', 'no')][string]$GameRunning = 'auto',
@@ -682,7 +683,7 @@ function Invoke-Once {
     }
     $snap = Join-Path $AddOnDir 'JournalSnapshot.lua'
     $stale = (Test-Path -LiteralPath $snap) -and -not ((Read-FileText $snap) -match 'revision = [1-9]')
-    if ($script:Changed -or $stale) { Publish-Snapshot }
+    if ($script:Changed -or $stale -or $Republish) { Publish-Snapshot }
     Save-State
 }
 
