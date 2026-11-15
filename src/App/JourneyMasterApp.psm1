@@ -1267,9 +1267,35 @@ function Format-CliArgument($arg) {
     if ($arg -eq '') { '""' } elseif ($arg -match '[\s"]') { '"' + ($arg -replace '"', '\"') + '"' } else { $arg }
 }
 
+# Returns the readable text in one line of Claude's stream-json output: the reply and thinking as they arrive, with a
+# heading when a new thinking or reply block starts. Returns '' for other events (and for lines that are not JSON).
+function Get-StreamText([string]$Line) {
+    if (-not $Line.Trim()) { return '' }
+    try { $o = $Line | ConvertFrom-Json } catch { return '' }
+    if (-not $o.PSObject.Properties['type'] -or $o.type -ne 'stream_event' -or -not $o.PSObject.Properties['event']) { return '' }
+    $ev = $o.event
+    if ($ev.type -eq 'content_block_start' -and $ev.PSObject.Properties['content_block']) {
+        switch ([string]$ev.content_block.type) {
+            'thinking' { return "`n`n--- thinking ---`n" }
+            'text' { return "`n`n--- reply ---`n" }
+        }
+        return ''
+    }
+    if ($ev.type -eq 'content_block_delta' -and $ev.PSObject.Properties['delta']) {
+        $d = $ev.delta
+        if ($d.type -eq 'text_delta') { return [string]$d.text }
+        if ($d.type -eq 'thinking_delta') { return [string]$d.thinking }
+    }
+    ''
+}
+
 # Runs headless Claude Code with the prompt on standard input, no tools. Returns the result event (or an object with
 # is_error and the output when there is none). (From RPMaster's Bridge.)
-function Invoke-ClaudeCli([string]$ClaudePath, [string[]]$Arguments, [string]$WorkDir, [string]$Prompt) {
+# Standard output is read line by line, so both the json and the stream-json output forms work. With LogBase, every
+# line goes to <LogBase>.jsonl and the readable text (see Get-StreamText) to <LogBase>.txt as it arrives; with
+# LivePath the readable text is also added to that file, for a window that follows it. Each write is flushed, so the
+# text survives a crash.
+function Invoke-ClaudeCli([string]$ClaudePath, [string[]]$Arguments, [string]$WorkDir, [string]$Prompt, [string]$LogBase, [string]$LivePath) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     if ($ClaudePath -match '\.ps1$') {
         $psi.FileName = 'powershell.exe'
@@ -1286,18 +1312,57 @@ function Invoke-ClaudeCli([string]$ClaudePath, [string[]]$Arguments, [string]$Wo
     $psi.StandardOutputEncoding = $Utf8
     $psi.StandardErrorEncoding = $Utf8
     $psi.EnvironmentVariables.Remove('CLAUDECODE')
-    $p = [System.Diagnostics.Process]::Start($psi)
-    $outTask = $p.StandardOutput.ReadToEndAsync()
-    $errTask = $p.StandardError.ReadToEndAsync()
-    $bytes = $Utf8.GetBytes($Prompt)
-    $p.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
-    $p.StandardInput.Close()
-    $p.WaitForExit()
-    $out = $outTask.Result
-    try { $events = @($out | ConvertFrom-Json | ForEach-Object { $_ }) } catch { $events = @() }
-    $result = $events | Where-Object { $_.PSObject.Properties['type'] -and $_.type -eq 'result' } | Select-Object -Last 1
-    if (-not $result) { $result = [pscustomobject]@{ is_error = $true; result = ($out + $errTask.Result).Trim() } }
-    $result
+    $writers = @()
+    $raw = $null; $text = $null; $live = $null
+    try {
+        if ($LogBase) {
+            $dir = Split-Path -Parent $LogBase
+            if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+            $raw = New-Object IO.StreamWriter((New-Object IO.FileStream("$LogBase.jsonl", 'Create', 'Write', 'ReadWrite')), $Utf8)
+            $text = New-Object IO.StreamWriter((New-Object IO.FileStream("$LogBase.txt", 'Create', 'Write', 'ReadWrite')), $Utf8)
+            $writers += $raw, $text
+        }
+        if ($LivePath) {
+            $live = New-Object IO.StreamWriter((New-Object IO.FileStream($LivePath, 'Append', 'Write', 'ReadWrite')), $Utf8)
+            $writers += $live
+        }
+        foreach ($w in $writers) { $w.AutoFlush = $true }
+        $p = [System.Diagnostics.Process]::Start($psi)
+        # The first line is asked for before the prompt is written, so a full output pipe cannot stall the writing.
+        $lineTask = $p.StandardOutput.ReadLineAsync()
+        $errTask = $p.StandardError.ReadToEndAsync()
+        $bytes = $Utf8.GetBytes($Prompt)
+        $p.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $p.StandardInput.Close()
+        $lines = New-Object Collections.Generic.List[string]
+        $streamed = $false
+        while ($null -ne ($line = $lineTask.Result)) {
+            $lines.Add($line)
+            if ($raw) { $raw.WriteLine($line) }
+            if ($text -or $live) {
+                $t = Get-StreamText $line
+                if ($t) { $streamed = $true; if ($text) { $text.Write($t) }; if ($live) { $live.Write($t) } }
+            }
+            $lineTask = $p.StandardOutput.ReadLineAsync()
+        }
+        $p.WaitForExit()
+        $events = @()
+        foreach ($l in $lines) {
+            if (-not $l.Trim()) { continue }
+            try { $events += @($l | ConvertFrom-Json | ForEach-Object { $_ }) } catch { }
+        }
+        $result = $events | Where-Object { $_.PSObject.Properties['type'] -and $_.type -eq 'result' } | Select-Object -Last 1
+        if (-not $result) { $result = [pscustomobject]@{ is_error = $true; result = (($lines -join "`n") + $errTask.Result).Trim() } }
+        # A reply that was not streamed (the json form, or a failed call) goes into the readable logs whole.
+        if (-not $streamed -and $result.PSObject.Properties['result']) {
+            $t = [string]$result.result
+            if ($text) { $text.Write($t) }; if ($live) { $live.Write($t) }
+        }
+        if ($live) { $live.Write("`n") }
+        $result
+    } finally {
+        foreach ($w in $writers) { $w.Dispose() }
+    }
 }
 
 Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Get-NumberWords, Test-Overview, New-OverviewCorrection, Test-Coverage, Get-SexWord, Read-FileText, Write-FileAtomic, Read-SavedVariables, Get-SafeName, ConvertFrom-Epoch, ConvertTo-Epoch,
@@ -1306,4 +1371,4 @@ Export-ModuleMember -Function Test-SourceMentions, Get-KeyFacts, Get-NumberWords
     Format-Entry, Format-RecordLines, Get-ShotLabel, Add-AccountPictures, Format-RecordHeader, Get-LoreText, Get-NarratorRules, New-SummaryPrompt, Split-RecordLines,
     ConvertFrom-SummaryReply, Test-Grounded, Get-SessionFileName, Format-SessionLine, Format-SessionMarkdown, Read-SessionMarkdown,
     Find-Screenshot, Get-SessionShots, New-Thumbnail, ConvertTo-LuaString, Get-SnapshotText, New-JournalSnapshotLua, Test-JournalSnapshotLua, Get-OverviewRules, ConvertFrom-OverviewReply, Select-OverviewShot, Get-OverviewEntryBody, Add-OverviewPictures,
-    New-OverviewPrompt, Format-CliArgument, Invoke-ClaudeCli
+    New-OverviewPrompt, Format-CliArgument, Get-StreamText, Invoke-ClaudeCli

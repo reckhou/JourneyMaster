@@ -46,6 +46,8 @@ param(
     [switch]$NoOverview,
     [switch]$Republish,        # in a single run, write the game's snapshot again even when nothing changed (for example after a size cap changed)
     [switch]$NoExplorer,
+    [switch]$NoLiveWindow,     # do not open the window that shows Claude's output live (for tests); it is still saved in <DataDir>\claude-logs
+    [int]$KeepLogs = 50,       # the newest calls whose output stays in <DataDir>\claude-logs
     [long]$SignalsFrom = -1,   # for tests: in a single run, also act on chat log signals from this byte on       # do not open File Explorer for the game's "Open screenshots on PC" button (for tests)
     [ValidateSet('auto', 'yes', 'no')][string]$GameRunning = 'auto',
     [long]$Now = 0,            # epoch seconds, for tests
@@ -67,7 +69,9 @@ if (-not $LoreDir) {
 $JourneysDir = Join-Path $DataDir 'journeys'
 $StateFile = Join-Path $DataDir 'state.json'
 $WorkDir = Join-Path $DataDir 'claude-cwd' # empty: the AI reads nothing itself
-foreach ($d in @($DataDir, $JourneysDir, $WorkDir)) { if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Force -Path $d | Out-Null } }
+$LogDir = Join-Path $DataDir 'claude-logs' # each call's output, as it arrives: <time>-<what>.txt (readable) and .jsonl (raw)
+$LivePath = Join-Path $LogDir 'live.txt'   # this run's output, for the live window
+foreach ($d in @($DataDir, $JourneysDir, $WorkDir, $LogDir)) { if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Force -Path $d | Out-Null } }
 
 function Say($text, $colour = 'Gray') { Write-Host "$(Get-Date -Format HH:mm:ss) $text" -ForegroundColor $colour }
 function Dbg($text) { if ($DebugMode) { Write-Host "  [debug] $text" -ForegroundColor DarkGray } }
@@ -357,21 +361,49 @@ function Use-AISettings($c) {
     Dbg "AI: $script:UseModel, $script:UseEffort effort"
 }
 
-function Invoke-Model([string]$Rules, [string]$Prompt) {
+# Deletes the oldest call logs, so that the newest $KeepLogs stay.
+function Clear-OldLogs {
+    $old = @(Get-ChildItem -LiteralPath $LogDir -Filter '*.txt' | Where-Object { $_.Name -ne 'live.txt' } | Sort-Object Name -Descending | Select-Object -Skip ([Math]::Max(0, $KeepLogs)))
+    foreach ($f in $old) {
+        Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath ([IO.Path]::ChangeExtension($f.FullName, '.jsonl')) -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Opens the window that shows Claude's output live (src\App\LiveView.ps1), unless it is open already. It closes itself
+# when this app stops. The first time in a run, the live file is emptied, so the window shows only this run's output.
+$script:LiveWindow = $null
+function Open-LiveWindow {
+    if ($NoLiveWindow) { return }
+    if ($script:LiveWindow -and -not $script:LiveWindow.HasExited) { return }
+    if (-not $script:LiveWindow) { [IO.File]::WriteAllText($LivePath, '') }
+    $viewer = Join-Path $PSScriptRoot 'LiveView.ps1'
+    $script:LiveWindow = Start-Process -FilePath 'powershell.exe' -PassThru -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        "`"$viewer`"", '-Path', "`"$LivePath`"", '-ParentId', $PID)
+}
+
+# Asks the AI once. Label names the call in its log file (for example the character, the session and the part).
+function Invoke-Model([string]$Rules, [string]$Prompt, [string]$Label) {
     $rulesFile = Join-Path $WorkDir 'rules.md'
     [IO.File]::WriteAllText($rulesFile, $Rules, (New-Object Text.UTF8Encoding $false))
-    $argList = @('-p', '--model', $script:UseModel, '--effort', $script:UseEffort, '--output-format', 'json', '--safe-mode', '--tools', '',
-        '--system-prompt-file', $rulesFile)
-    $r = Invoke-ClaudeCli -ClaudePath $ClaudePath -Arguments $argList -WorkDir $WorkDir -Prompt $Prompt
-    Dbg "prompt: $($Prompt.Length) characters"
+    $argList = @('-p', '--model', $script:UseModel, '--effort', $script:UseEffort, '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+        '--safe-mode', '--tools', '', '--system-prompt-file', $rulesFile)
+    $logBase = Join-Path $LogDir ((Get-Date -Format 'yyyy-MM-dd_HHmmss') + '-' + (Get-SafeName $Label))
+    Open-LiveWindow
+    $live = if ($NoLiveWindow) { '' } else { $LivePath }
+    if ($live) { [IO.File]::AppendAllText($live, "`n===== $(Get-Date -Format HH:mm:ss) $Label ($script:UseModel, $script:UseEffort effort) =====`n", (New-Object Text.UTF8Encoding $false)) }
+    $r = Invoke-ClaudeCli -ClaudePath $ClaudePath -Arguments $argList -WorkDir $WorkDir -Prompt $Prompt -LogBase $logBase -LivePath $live
+    Dbg "prompt: $($Prompt.Length) characters; output saved in $logBase.txt"
     if ($r.PSObject.Properties['total_cost_usd']) { Dbg "cost US`$$($r.total_cost_usd)" }
+    $r | Add-Member -NotePropertyName LogFile -NotePropertyValue "$logBase.txt" -Force
+    Clear-OldLogs
     $r
 }
 
 # Asks the AI once for an account and returns its Title and Body, or $null when the call fails. The reply is not checked.
-function Get-Reply([string]$Rules, [string]$Prompt) {
-    $r = Invoke-Model $Rules $Prompt
-    if ($r.is_error -or -not $r.result) { Say "the AI call failed: $($r.result)" 'Yellow'; return $null }
+function Get-Reply([string]$Rules, [string]$Prompt, [string]$Label) {
+    $r = Invoke-Model $Rules $Prompt $Label
+    if ($r.is_error -or -not $r.result) { Say "the AI call failed: $($r.result) (its output is saved in $($r.LogFile))" 'Yellow'; return $null }
     ConvertFrom-SummaryReply ([string]$r.result)
 }
 
@@ -425,7 +457,7 @@ function Invoke-SessionSummary($key, $c, $Session) {
     $title = ''; $bodies = @()
     for ($p = 0; $p -lt $parts.Count; $p++) {
         $prompt = New-SummaryPrompt $header $parts[$p] $lore ($p + 1) $parts.Count ($bodies -join "`n`n")
-        $reply = Get-Reply $rules $prompt
+        $reply = Get-Reply $rules $prompt "$key-session$($Session.S)-part$($p + 1)of$($parts.Count)"
         if (-not $reply) { return $false }
         if ($p -eq 0) { $title = $reply.Title }
         $bodies += $reply.Body
@@ -541,10 +573,10 @@ function Update-Overview($key) {
     }
     $rules = Get-OverviewRules -Continue:([bool]$previous)
     $prompt = New-OverviewPrompt ([string]$c.Name) $entries $previous
-    $r = Invoke-Model $rules $prompt
-    if ($r.is_error -or -not $r.result) { Say "the AI call failed: $($r.result)" 'Yellow'; return }
+    $r = Invoke-Model $rules $prompt "$key-overview"
+    if ($r.is_error -or -not $r.result) { Say "the AI call failed: $($r.result) (its output is saved in $($r.LogFile))" 'Yellow'; return }
     $text = ConvertFrom-OverviewReply ([string]$r.result)
-    if (-not $text) { Say "$key`: the AI wrote no overview" 'Yellow'; return }
+    if (-not $text) { Say "$key`: the AI wrote no overview (its output is saved in $($r.LogFile))" 'Yellow'; return }
     # The overview is checked (a section for each session, no invented names or numbers, no talk about its sources).
     # When it has faults the AI is asked once more, and the reply with fewer faults is kept. Session summaries are
     # not checked.
@@ -553,7 +585,7 @@ function Update-Overview($key) {
     if ($faults.Count -gt 0) {
         Say "$key`: the overview has $($faults.Count) fault$(if ($faults.Count -ne 1) { 's' }); asking the AI once more" 'Yellow'
         foreach ($f in $faults) { Dbg "overview fault: $f" }
-        $r2 = Invoke-Model $rules (New-OverviewCorrection $prompt $text $faults)
+        $r2 = Invoke-Model $rules (New-OverviewCorrection $prompt $text $faults) "$key-overview-correction"
         $text2 = if ($r2.is_error -or -not $r2.result) { '' } else { ConvertFrom-OverviewReply ([string]$r2.result) }
         if ($text2) {
             $faults2 = @(Test-Overview $text2 $titles $prompt)
@@ -648,6 +680,7 @@ function Publish-Snapshot {
 # Run ----------------------------------------------------------------------------------------------------------------------
 
 $State = Read-State
+Clear-OldLogs
 if ($Restore -gt 0) {
     $keys = @($State.Characters.Keys | Where-Object { (-not $Character -or $_ -eq $Character) -and (Test-Path -LiteralPath (Get-DeletedDir $State.Characters[$_] $Restore)) })
     if ($keys.Count -ne 1) {

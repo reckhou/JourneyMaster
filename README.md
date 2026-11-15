@@ -39,6 +39,8 @@ Every character gets the same narrator, who writes each session like a chapter o
 5. **The app also writes** `overview.md` (the journey so far: a section headed by the title of each session, retold in about 500 words with only the turning points, with one of its screenshots, preferring one taken during the journey to a level-up) and gives the game a new snapshot of the summaries and the overview. The game's Overview tab shows it. The app checks the overview before it saves it: a section for each session under that session's title, no name or number that the summaries do not hold, and no talk about its sources. When it finds a fault it asks the AI once more and keeps the reply with fewer faults. Session summaries are not checked.
 6. **After the app has finished, `/reload` or click Reload**, and the summary appears in the game.
 
+**Watching the AI write.** When the app first asks the AI for a summary or an overview, it opens a second console window, "JourneyMaster - Claude output". The window shows the AI's thinking and its reply as they arrive, with a heading for each call. It stays open whilst the app runs and closes itself when the app stops. If you close it, the app opens it again at its next call. Each call is also saved as it arrives, so you can read a reply after a crash or a failed check: see `data\claude-logs\` under [Your files](#your-files). When a call fails, the app prints the path of its log.
+
 ## In the game
 
 - Click the **minimap button** (a book), or type `/jm`, to open the journal. The add-on menu has an entry for it too.
@@ -68,6 +70,12 @@ Everything stays under `data\` in this folder. Git ignores it.
 | `screenshots\` | The milestone screenshots, linked from their sessions. Their thumbnails for the game are in the add-on's `Thumbs\` folder; the app deletes the ones no recent session uses |
 | `overview.md` | The journey so far: one section for each session, headed by its title, with one screenshot each |
 
+| Path under `data\claude-logs\` | What it holds |
+| --- | --- |
+| `<date>_<time>-<character>-<call>.txt` | The AI's thinking and reply for one call (a session part, the overview, or its correction), written as it arrives. The app keeps the newest 50 calls; `-KeepLogs <n>` changes the number |
+| `<date>_<time>-<character>-<call>.jsonl` | The same call as Claude Code's raw events, one per line, for debugging |
+| `live.txt` | Everything the live window has shown in this run. `-NoLiveWindow` turns the window off; the calls are still saved |
+
 ## Export to PDF
 
 `scripts\export_pdf.bat` writes each character's summarised sessions that are not deleted to PDF (Portable Document Format), with their pictures, and the character's overview once. A session with no summary yet, or deleted in the game, is left out. The PDFs go to `J:\My Drive\JourneyMaster\Sessions\<Character Name>\`, one file per session (`<date>-<n> - <title>.pdf`) plus `Overview.pdf`. A PDF that is already up to date is skipped, so you can run it again at any time. Microsoft Edge (or Chrome) and Python 3 must be installed.
@@ -85,7 +93,7 @@ Options go after the command: `--out "<folder>"` for another folder, `--characte
 | Path | What it is |
 | --- | --- |
 | `src/JourneyMaster/` | The add-on (Lua 5.1). `Core.lua` and `Journal.lua` hold the logic with no game calls |
-| `src/App/` | The app (Windows PowerShell 5.1). `JourneyMasterApp.psm1` holds the logic; `LuaReader.cs` reads the saved file |
+| `src/App/` | The app (Windows PowerShell 5.1). `JourneyMasterApp.psm1` holds the logic; `LuaReader.cs` reads the saved file; `LiveView.ps1` is the window that shows the AI's output live |
 | `src/JourneyProbe/`, `scripts/probe_report.py` | The Phase 0 probe that checked what the game allows. It is not installed any more |
 | `tests/` | Offline harnesses |
 | `scripts/replay_sessions.ps1` | Runs a made-up journey through the app and checks that no summary invents or loses anything |

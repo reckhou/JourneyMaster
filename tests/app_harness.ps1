@@ -409,9 +409,9 @@ JourneyMasterOther = nil
     # $run summarises every finished session (-SummariseAll, as the app did on its own); $runPlain is the app's normal run,
     # which summarises only on the game's Summarise signal.
     $run = { param([long]$Now, [string]$Running = 'no', [string[]]$More = @())
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $App -WowDir $wow -DataDir $data -ClaudePath $Fake -GameRunning $Running -Now $Now -LoreDir (Join-Path $tmp 'nolore') -NoExplorer -SummariseAll @More 2>&1 | Out-String }
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $App -WowDir $wow -DataDir $data -ClaudePath $Fake -GameRunning $Running -Now $Now -LoreDir (Join-Path $tmp 'nolore') -NoExplorer -NoLiveWindow -SummariseAll @More 2>&1 | Out-String }
     $runPlain = { param([long]$Now, [string]$Running = 'no', [string[]]$More = @())
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $App -WowDir $wow -DataDir $data -ClaudePath $Fake -GameRunning $Running -Now $Now -LoreDir (Join-Path $tmp 'nolore') -NoExplorer @More 2>&1 | Out-String }
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $App -WowDir $wow -DataDir $data -ClaudePath $Fake -GameRunning $Running -Now $Now -LoreDir (Join-Path $tmp 'nolore') -NoExplorer -NoLiveWindow @More 2>&1 | Out-String }
 
     # The game is still running: the first session (logged out, then a later session) is summarised; the dungeon session
     # waits for the game to close.
@@ -423,6 +423,13 @@ JourneyMasterOther = nil
     Check 'one summary call and one overview call' $firstCalls 2
     $firstCall = Get-Content -Raw (Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -First 1).FullName
     True 'Opus and low effort by default' ($firstCall -match '--model opus' -and $firstCall -match '--effort low')
+    True 'the reply is streamed' ($firstCall -match '--output-format stream-json --verbose --include-partial-messages')
+    $logs = @(Get-ChildItem (Join-Path $data 'claude-logs') -Filter '*.txt' | Where-Object { $_.Name -ne 'live.txt' } | Sort-Object Name)
+    Check 'each call saved in claude-logs' $logs.Count 2
+    Check 'and its raw events beside it' @(Get-ChildItem (Join-Path $data 'claude-logs') -Filter '*.jsonl').Count 2
+    $log = Read-FileText ($logs | Where-Object { $_.Name -match 'session1-part1of1' }).FullName
+    True 'the call log holds the thinking and the reply' ($log -match '--- thinking ---' -and $log -match 'FAKE THINKING' -and $log -match '--- reply ---\r?\nTITLE: Session record')
+    True 'no live file without the live window' (-not (Test-Path (Join-Path $data 'claude-logs\live.txt')))
     $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
     True 'snapshot written' ($snap -match 'revision = 1,')
     True 'snapshot holds the overview' ($snap -match 'overview = "')
@@ -586,6 +593,16 @@ JourneyMasterOther = nil
     True 'the second call names the fault and holds the first reply' ($lastCall -match '# Correction' -and $lastCall -match 'the entries do not hold: Mordecai, Vandermeer' -and $lastCall -match 'Mordecai Vandermeer watched\.')
     True 'the corrected overview is kept' ((Read-FileText (Join-Path $charDir 'overview.md')) -notmatch 'Mordecai')
     True 'no fault is left' ($out -notmatch 'overview fault left')
+    $logDir = Join-Path $data 'claude-logs'
+    True 'the corrected overview call has its own log' (@(Get-ChildItem $logDir -Filter '*-overview-correction.txt').Count -eq 1)
+
+    # Old call logs are deleted at start-up, so that the newest -KeepLogs stay.
+    $newest = (Get-ChildItem $logDir -Filter '*.txt' | Where-Object { $_.Name -ne 'live.txt' } | Sort-Object Name | Select-Object -Last 1).Name
+    $out = & $runPlain ($T + 95400) 'yes' @('-KeepLogs', '1')
+    $left = @(Get-ChildItem $logDir -Filter '*.txt' | Where-Object { $_.Name -ne 'live.txt' })
+    Check 'old call logs deleted' $left.Count 1
+    Check 'the newest call log kept' $left[0].Name $newest
+    Check 'with its raw events only' @(Get-ChildItem $logDir -Filter '*.jsonl').Count 1
 } finally {
     Remove-Item Env:FAKE_CLAUDE_OVERVIEW_FAULT -ErrorAction SilentlyContinue
     Remove-Item Env:FAKE_CLAUDE_LOG -ErrorAction SilentlyContinue
