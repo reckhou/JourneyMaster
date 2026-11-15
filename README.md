@@ -68,6 +68,12 @@ Everything stays under `data\` in this folder. Git ignores it.
 | `screenshots\` | The milestone screenshots, linked from their sessions. Their thumbnails for the game are in the add-on's `Thumbs\` folder; the app deletes the ones no recent session uses |
 | `overview.md` | The journey so far: one section for each session, headed by its title, with one screenshot each |
 
+## Export to PDF
+
+`scripts\export_pdf.bat` writes each character's summarised sessions that are not deleted to PDF (Portable Document Format), with their pictures, and the character's overview once. A session with no summary yet, or deleted in the game, is left out. The PDFs go to `J:\My Drive\JourneyMaster\Sessions\<Character Name>\`, one file per session (`<date>-<n> - <title>.pdf`) plus `Overview.pdf`. A PDF that is already up to date is skipped, so you can run it again at any time. Microsoft Edge (or Chrome) and Python 3 must be installed.
+
+Options go after the command: `--out "<folder>"` for another folder, `--character Baldrake` for one character, `--name "Baldrake=Baldrake Cavendell"` to choose a character's folder name (otherwise an existing folder that starts with the character's name is used, or a new one is made), `--force` to rebuild every PDF, and `--list` to only show what would be exported.
+
 ## Privacy
 
 - Nothing leaves your PC except the text sent to the AI through your own signed-in `claude` command.
