@@ -103,7 +103,7 @@ end
 
 issecretvalue = function(v) return W.secret[v] == true end
 UnitName = function(unit)
-    if unit == "player" then return "Baldrake Cavendell" end
+    if unit == "player" then return "Baldrake", "Cavendell" end
     if unit == "questnpc" or unit == "npc" then return W.quest.giver end
     if unit == "pet" then return W.pet and W.pet.name or nil end
     local i = tonumber(unit:match("^party(%d)$") or "")

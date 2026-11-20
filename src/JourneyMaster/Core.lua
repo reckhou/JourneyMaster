@@ -242,10 +242,9 @@ end
 
 -- Characters and entries ------------------------------------------------------------------------------------------
 
--- The key of a character: "Name-Realm".
-function Core.CharKey(name, realm)
-    local r = tostring(realm or "?"):gsub("%s", "")
-    return tostring(name or "?") .. "-" .. r
+-- Forever identifies a character by given name and surname.
+function Core.CharKey(name, surname)
+    return name .. "-" .. surname
 end
 
 -- The saved table of one character, created when missing; missing settings get their defaults.

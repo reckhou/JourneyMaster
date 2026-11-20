@@ -170,7 +170,7 @@ JourneyMasterOther = nil
         ((& $stamp 60) + 'Defias Prisoner dies, you gain 60 experience. (+18 group bonus)'),
         ((& $stamp 70) + 'You receive loot: Linen Clothx3'),
         ((& $stamp 80) + 'You died.'),
-        ((& $stamp 81) + 'JMS:1-1:OPEN:2:Baldrake Cavendell-LivingFlame'),
+        ((& $stamp 81) + 'JMS:1-1:OPEN:2:Baldrake-Cavendell'),
         ((& $stamp 82) + 'JMP:1-1:00001:......'),
         # RPMaster's hidden lines, some holding text that would otherwise read as chat or a death.
         ((& $stamp 83) + 'RPMT:c1:L:1:say:Seph Stormbrewer:Seph Stormbrewer says: on my way'),
@@ -185,12 +185,12 @@ JourneyMasterOther = nil
     [IO.File]::WriteAllText($logPath, ($logLines -join "`r`n") + "`r`n", $Utf8)
     $inWin = @(Read-ChatLogWindows $logPath $win)
     Check 'lines in the window only, signal lines and RPMaster lines left out' $inWin.Count 7
-    True 'an RPMaster line holding a signal is not one' ($null -eq (ConvertFrom-SignalLine ((& $stamp 83) + 'RPMT:c1:L:1:say:X:JMS:1-9:OPEN:2:Baldrake Cavendell-LivingFlame')))
-    $sig = ConvertFrom-SignalLine ((& $stamp 81) + 'JMS:1-1:OPEN:2:Baldrake Cavendell-LivingFlame')
+    True 'an RPMaster line holding a signal is not one' ($null -eq (ConvertFrom-SignalLine ((& $stamp 83) + 'RPMT:c1:L:1:say:X:JMS:1-9:OPEN:2:Baldrake-Cavendell')))
+    $sig = ConvertFrom-SignalLine ((& $stamp 81) + 'JMS:1-1:OPEN:2:Baldrake-Cavendell')
     Check 'signal kind' $sig.Kind 'OPEN'
     Check 'signal session' $sig.S 2
-    Check 'signal character' $sig.Key 'Baldrake Cavendell-LivingFlame'
-    True 'a player saying a signal is not one' ($null -eq (ConvertFrom-SignalLine ((& $stamp 81) + 'Mallory says: JMS:1-2:OPEN:2:Baldrake Cavendell-LivingFlame')))
+    Check 'signal character' $sig.Key 'Baldrake-Cavendell'
+    True 'a player saying a signal is not one' ($null -eq (ConvertFrom-SignalLine ((& $stamp 81) + 'Mallory says: JMS:1-2:OPEN:2:Baldrake-Cavendell')))
     True 'padding is not a signal' ($null -eq (ConvertFrom-SignalLine ((& $stamp 82) + 'JMP:1-1:00001:......')))
     $merged = @(Merge-ChatLog (@($dungeon.Entries) + @(@{ k = 'death'; t = $T + 82 })) $inWin 'Baldrake Cavendell' @())
     $kinds = ($merged | ForEach-Object { Get-Field $_ 'k' }) -join ','
@@ -404,8 +404,8 @@ JourneyMasterOther = nil
         @{ i = 10; s = 2; t = $T + 600; k = 'leave'; inst = 'The Stockade'; itype = 'party'; z = 'Stormwind City' },
         @{ i = 11; s = 2; t = $T + 700; k = 'logout'; z = 'Stormwind City' }
     )
-    $char = [ordered]@{ name = 'Baldrake Cavendell'; realm = 'Living Flame'; race = 'Human'; class = 'Warlock'; faction = 'Alliance'; level = 27; seq = 11; dropped = 0; entries = @($session1 + $session2); settings = @{ aiModel = 'opus'; aiEffort = 'low' } }
-    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    $char = [ordered]@{ name = 'Baldrake Cavendell'; key = 'Baldrake-Cavendell'; race = 'Human'; class = 'Warlock'; faction = 'Alliance'; level = 27; seq = 11; dropped = 0; entries = @($session1 + $session2); settings = @{ aiModel = 'opus'; aiEffort = 'low' } }
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake-Cavendell' = $char } }
     # $run summarises every finished session (-SummariseAll, as the app did on its own); $runPlain is the app's normal run,
     # which summarises only on the game's Summarise signal.
     $run = { param([long]$Now, [string]$Running = 'no', [string[]]$More = @())
@@ -416,7 +416,7 @@ JourneyMasterOther = nil
     # The game is still running: the first session (logged out, then a later session) is summarised; the dungeon session
     # waits for the game to close.
     $out = & $run ($T + 800) 'yes'
-    $charDir = Join-Path $data 'journeys\Baldrake Cavendell-LivingFlame'
+    $charDir = Join-Path $data 'journeys\Baldrake-Cavendell'
     Check 'events stored' @(Get-ChildItem (Join-Path $charDir 'events') -Filter '*.jsonl').Count 1
     Check 'one session summarised while the game runs' @(Get-ChildItem (Join-Path $charDir 'sessions')).Count 1
     $firstCalls = @(Get-ChildItem $calls).Count
@@ -470,7 +470,7 @@ JourneyMasterOther = nil
     True 'the snapshot lists the overview picture' ($snap -match 'overviewShots = \{ \{ name = ')
     $thumbs = @(Get-ChildItem (Join-Path $addon 'Thumbs') -Recurse -Filter '*.tga')
     Check 'thumbnail made in the add-on folder' $thumbs.Count 1
-    Check 'thumbnail folder named safely' $thumbs[0].Directory.Name 'Baldrake_Cavendell-LivingFlame'
+    Check 'thumbnail folder named safely' $thumbs[0].Directory.Name 'Baldrake-Cavendell'
     True 'snapshot lists the thumbnail' ($snap -match 'shots = \{ \{ name = ')
 
     # The game's buttons reach the app through the chat log: only what was added since the app's last look is read.
@@ -478,14 +478,14 @@ JourneyMasterOther = nil
     $from = (Get-Item $gameLog).Length
     $stampNow = (ConvertFrom-Epoch ($T + 2650)).ToString('M/d HH:mm:ss.fff') + '  '
     $added = @(
-        ($stampNow + 'JMS:9-1:OPEN:2:Baldrake Cavendell-LivingFlame'),
-        ($stampNow + 'JMS:9-1:OPEN:2:Baldrake Cavendell-LivingFlame'),
+        ($stampNow + 'JMS:9-1:OPEN:2:Baldrake-Cavendell'),
+        ($stampNow + 'JMS:9-1:OPEN:2:Baldrake-Cavendell'),
         ($stampNow + 'JMP:9-1:00001:' + ('.' * 186)),
-        ($stampNow + 'Mallory says: JMS:9-2:OPEN:1:Baldrake Cavendell-LivingFlame'),
-        ($stampNow + 'JMS:9-3:END:3:Baldrake Cavendell-LivingFlame'),
+        ($stampNow + 'Mallory says: JMS:9-2:OPEN:1:Baldrake-Cavendell'),
+        ($stampNow + 'JMS:9-3:END:3:Baldrake-Cavendell'),
         ($stampNow + 'JMS:9-4:OPEN:1:Nobody-Realm'),
-        ($stampNow + 'JMS:9-5:SET:model=sonnet:Baldrake Cavendell-LivingFlame'),
-        ($stampNow + 'JMS:9-6:SET:effort=turbo:Baldrake Cavendell-LivingFlame')
+        ($stampNow + 'JMS:9-5:SET:model=sonnet:Baldrake-Cavendell'),
+        ($stampNow + 'JMS:9-6:SET:effort=turbo:Baldrake-Cavendell')
     )
     [IO.File]::AppendAllText($gameLog, ($added -join "`r`n") + "`r`n", $Utf8)
     $out = & $run ($T + 2660) 'no' @('-SignalsFrom', "$from")
@@ -513,7 +513,7 @@ JourneyMasterOther = nil
     $long += @{ i = 53; s = 3; t = $T + 5500; k = 'end'; z = 'Elwynn Forest' } # finished by the player: summarised at once
     $char.entries = @($session1 + $session2 + $long)
     $char.seq = 53
-    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake-Cavendell' = $char } }
     $before = @(Get-ChildItem $calls).Count
     $out = & $run ($T + 6000) 'no' @('-MaxPromptChars', '1200', '-NoOverview')
     $new =@(Get-ChildItem $calls | Sort-Object { [int]($_.BaseName -replace '\D', '') } | Select-Object -Skip $before)
@@ -527,14 +527,14 @@ JourneyMasterOther = nil
     $md3 = Read-FileText $files[2].FullName
     True 'parts joined in order' ($md3.IndexOf('Line number 0 ') -lt $md3.LastIndexOf('Line number'))
     $state = (Read-FileText (Join-Path $data 'state.json')) | ConvertFrom-Json
-    Check 'state records the parts' ([int]$state.Characters.'Baldrake Cavendell-LivingFlame'.Sessions.'3'.Parts -gt 1) $true
+    Check 'state records the parts' ([int]$state.Characters.'Baldrake-Cavendell'.Sessions.'3'.Parts -gt 1) $true
 
     # The snapshot keeps the newest sessions in full and older ones by title only.
     $out = & $run ($T + 6100) 'no' @('-FullSessions', '1')
     # Nothing new, so no snapshot is written; force one by a new entry.
     $char.entries = @($session1 + $session2 + $long + @(@{ i = 54; s = 4; t = $T + 9000; k = 'login'; z = 'Elwynn Forest' }))
     $char.seq = 54
-    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake-Cavendell' = $char } }
     $out = & $run ($T + 9001) 'yes' @('-FullSessions', '1')
     $snap = Read-FileText (Join-Path $addon 'JournalSnapshot.lua')
     Check 'texts in the snapshot' ([regex]::Matches($snap, 'text = ').Count) 1
@@ -547,7 +547,7 @@ JourneyMasterOther = nil
     $char.entries = @($session1 + $session2 + $long + @(@{ i = 54; s = 4; t = $T + 9000; k = 'login'; z = 'Elwynn Forest' },
         @{ i = 55; s = 3; t = $T + 9200; k = 'note'; text = 'late'; z = 'Elwynn Forest' }))
     $char.seq = 55
-    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake-Cavendell' = $char } }
     $out = & $run ($T + 9300) 'yes'
     True 'late entries for a summarised session reported' ($out -match '1 entries arrived after session 3 was summarised')
 
@@ -560,7 +560,7 @@ JourneyMasterOther = nil
     Check 'a plain run calls no AI' @(Get-ChildItem $calls).Count $before
     $from = (Get-Item $gameLog).Length
     $stampNow = (ConvertFrom-Epoch ($T + 90100)).ToString('M/d HH:mm:ss.fff') + '  '
-    [IO.File]::AppendAllText($gameLog, (@(($stampNow + 'JMS:9-7:SUMMARISE:99:Baldrake Cavendell-LivingFlame'), ($stampNow + 'JMS:9-8:SUMMARISE:4:Baldrake Cavendell-LivingFlame')) -join "`r`n") + "`r`n", $Utf8)
+    [IO.File]::AppendAllText($gameLog, (@(($stampNow + 'JMS:9-7:SUMMARISE:99:Baldrake-Cavendell'), ($stampNow + 'JMS:9-8:SUMMARISE:4:Baldrake-Cavendell')) -join "`r`n") + "`r`n", $Utf8)
     $out = & $runPlain ($T + 90200) 'yes' @('-SignalsFrom', "$from")
     True 'a request for a session the file does not hold is reported' ($out -match 'session 99, which the saved file does not hold')
     True 'a request for a session not finished is refused' ($out -match 'session 4 is not finished')
@@ -569,7 +569,7 @@ JourneyMasterOther = nil
     $char.entries = @($session1 + $session2 + $long + @(@{ i = 54; s = 4; t = $T + 9000; k = 'login'; z = 'Elwynn Forest' },
         @{ i = 55; s = 3; t = $T + 9200; k = 'note'; text = 'late'; z = 'Elwynn Forest' }, @{ i = 56; s = 4; t = $T + 9400; k = 'end'; z = 'Elwynn Forest' }))
     $char.seq = 56
-    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake-Cavendell' = $char } }
     $out = & $runPlain ($T + 90250) 'yes' @('-SignalsFrom', "$from")
     True 'the finished session is summarised' ($out -match 'summarising session 4, as asked in the game' -and $out -match 'summarised session 4')
     Check 'the requested session has its file' @(Get-ChildItem (Join-Path $charDir 'sessions')).Count ($sessionsBefore + 1)
@@ -582,9 +582,9 @@ JourneyMasterOther = nil
     $env:FAKE_CLAUDE_OVERVIEW_FAULT = '1'
     $char.entries = @($char.entries) + @(@{ i = 57; s = 5; t = $T + 95000; k = 'login'; z = 'Elwynn Forest' }, @{ i = 58; s = 5; t = $T + 95100; k = 'end'; z = 'Elwynn Forest' })
     $char.seq = 58
-    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake Cavendell-LivingFlame' = $char } }
+    Write-TestSV $sv @{ schema = 1; characters = @{ 'Baldrake-Cavendell' = $char } }
     $from = (Get-Item $gameLog).Length
-    [IO.File]::AppendAllText($gameLog, ((ConvertFrom-Epoch ($T + 95200)).ToString('M/d HH:mm:ss.fff') + '  JMS:9-9:SUMMARISE:5:Baldrake Cavendell-LivingFlame') + "`r`n", $Utf8)
+    [IO.File]::AppendAllText($gameLog, ((ConvertFrom-Epoch ($T + 95200)).ToString('M/d HH:mm:ss.fff') + '  JMS:9-9:SUMMARISE:5:Baldrake-Cavendell') + "`r`n", $Utf8)
     $before = @(Get-ChildItem $calls).Count
     $out = & $runPlain ($T + 95300) 'yes' @('-SignalsFrom', "$from")
     True 'a faulty overview is reported' ($out -match 'the overview has 1 fault; asking the AI once more')

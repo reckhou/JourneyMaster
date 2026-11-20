@@ -31,7 +31,7 @@ fire("PLAYER_LOGIN")
 local c = ns.Recorder.Char()
 check(c ~= nil, "character created")
 eq(c.name, "Baldrake Cavendell", "name") eq(c.class, "Warlock", "class") eq(c.race, "Human", "race") eq(c.sex, 2, "sex")
-check(JourneyMasterDB.characters["Baldrake Cavendell-LivingFlame"] == c, "saved under Name-Realm")
+check(JourneyMasterDB.characters["Baldrake-Cavendell"] == c, "saved under given name and surname")
 check(W.chatLogging, "chat logging turned on at login")
 fire("PLAYER_ENTERING_WORLD", true, false)
 eq(c.entries[1].k, "login", "login entry") eq(c.entries[2].k, "zone", "zone entry")
@@ -463,7 +463,7 @@ eq(ns.Window.State().tab, "log", "/jm log opens the Log tab")
 -- Snapshot: summaries shown, stored entries trimmed at the next login -----------------------------------------------------
 local s1 = c.entries[1].s
 ns.journalSnapshot = { schema = 1, revision = 1, written = W.now, characters = {
-    ["Baldrake Cavendell-LivingFlame"] = { confirmed = c.seq, sessions = {
+    ["Baldrake-Cavendell"] = { confirmed = c.seq, sessions = {
         { s = s1, title = "Duskwood by night", first = c.entries[1].t, last = W.now, zones = { "Elwynn Forest", "Duskwood" }, text = "# Duskwood by night\n\nBaldrake went to Duskwood." } } } } }
 ns.Window.Refresh()
 st = ns.Window.State()
@@ -476,8 +476,8 @@ eq(shotBlocks[2].image, "Interface\\AddOns\\JourneyMaster\\Thumbs\\X\\a", "thumb
 eq(shotBlocks[2].w, 455, "thumbnail width")
 check(shotBlocks[3].text:find("Level up, 21:02", 1, true), "caption under the thumbnail")
 check(shotBlocks[4].text:find("[Screenshot: b.jpg]", 1, true), "picture without a thumbnail named")
-ns.journalSnapshot.characters["Baldrake Cavendell-LivingFlame"].sessions[1].shots = { { name = "a.jpg", thumb = "T\\a", w = 455, h = 256 } }
-ns.journalSnapshot.characters["Baldrake Cavendell-LivingFlame"].sessions[1].text = "Went.\n\n![Level up, 21:02](../screenshots/a.jpg)\n"
+ns.journalSnapshot.characters["Baldrake-Cavendell"].sessions[1].shots = { { name = "a.jpg", thumb = "T\\a", w = 455, h = 256 } }
+ns.journalSnapshot.characters["Baldrake-Cavendell"].sessions[1].text = "Went.\n\n![Level up, 21:02](../screenshots/a.jpg)\n"
 ns.Window.Select(s1)
 ns.Window.SelectTab("journal")
 eq(#ns.Window.State().items[1].shots, 1, "shots reach the session list")
@@ -485,7 +485,7 @@ eq(#ns.Window.State().items[1].shots, 1, "shots reach the session list")
 W.system = {}
 ns.Window.RequestShots()
 W.RunSignalTickers()
-check(W.system[1]:find("^JMS:[%w-]+:OPEN:" .. s1 .. ":Baldrake Cavendell%-LivingFlame$"), "open signal names the session and character: " .. tostring(W.system[1]))
+check(W.system[1]:find("^JMS:[%w-]+:OPEN:" .. s1 .. ":Baldrake%-Cavendell$"), "open signal names the session and character: " .. tostring(W.system[1]))
 local padBytes = 0
 for i = 2, #W.system do padBytes = padBytes + #W.system[i] check(W.system[i]:find("^JMP:"), "padding line") end
 check(padBytes >= 48 * 1024, "at least 48 KiB of padding")
@@ -509,7 +509,7 @@ eq(ns.Window.AIButtons.effort.label:GetText(), "Effort: Extra high", "effort sho
 local sets = {}
 for _, line in ipairs(W.system) do if line:find("^JMS:") then sets[#sets + 1] = line end end
 eq(#sets, 2, "both changes signalled")
-check(sets[1]:find(":SET:model=sonnet:Baldrake Cavendell%-LivingFlame$"), "model signal: " .. tostring(sets[1]))
+check(sets[1]:find(":SET:model=sonnet:Baldrake%-Cavendell$"), "model signal: " .. tostring(sets[1]))
 check(sets[2]:find(":SET:effort=xhigh:"), "effort signal: " .. tostring(sets[2]))
 ns.Window.SelectTab("journal")
 -- A new session starts; at the next login the stored session is trimmed, as it is no longer among the newest kept.
@@ -531,7 +531,7 @@ ns.Window.Select(s1)
 
 -- Pages: a long overview and a long summary show one page at a time, with a bar to move between pages.
 do
-    local KEYP = "Baldrake Cavendell-LivingFlame"
+    local KEYP = "Baldrake-Cavendell"
     local function words(n, tag) local t = {} for i = 1, n do t[i] = tag .. i end return table.concat(t, " ") end
     local parts = {}
     for i = 1, 7 do parts[#parts + 1] = "## Session " .. i .. "\n\n" .. words(500, "s" .. i .. "w") end
@@ -669,7 +669,7 @@ tick(1801)
 ns.Command("note after a long break")
 eq(c.session, sNow + 2, "a 30-minute gap starts a new session")
 -- If the app has already summarised the session in progress, the next entry after a login starts a new one.
-local snapSessions = ns.journalSnapshot.characters["Baldrake Cavendell-LivingFlame"].sessions
+local snapSessions = ns.journalSnapshot.characters["Baldrake-Cavendell"].sessions
 snapSessions[#snapSessions + 1] = { s = c.session, title = "Summarised too early", first = W.now, last = W.now, zones = {} }
 fire("PLAYER_LOGIN")
 tick(5)
@@ -683,7 +683,7 @@ eq(c.session, sNow + 3, "a session the app has not summarised continues after a 
 
 -- The Summarise button: only for a finished session. It asks the app for the summary, ends nothing, reloads, and the signal
 -- goes out at the next login. The app summarises nothing on its own.
-local KEY0 = "Baldrake Cavendell-LivingFlame"
+local KEY0 = "Baldrake-Cavendell"
 local sPend = c.session
 local function pendingItem()
     ns.Window.Refresh()
@@ -734,7 +734,7 @@ table.remove(snapSess0)
 eq(select(2, ns.Signal.RequestSummary(999999)), "nothing recorded in this session yet.", "nothing to summarise: no request")
 
 -- Renaming and deleting sessions --------------------------------------------------------------------------------------------
-local KEY = "Baldrake Cavendell-LivingFlame"
+local KEY = "Baldrake-Cavendell"
 local snapChar = ns.journalSnapshot.characters[KEY]
 local function item(s)
     ns.Window.Refresh()
@@ -842,30 +842,30 @@ x, y = ns.Minimap.Offset(45, 70, true)
 check(math.abs(x - 75) < 0.01 and math.abs(y - 75) < 0.01, "button on a square minimap's corner")
 eq(math.floor(ns.Minimap.Angle(0, 10) + 0.5), 90, "angle")
 
--- A late realm must resume the existing character, including events received before the timer retries.
+-- A late surname must resume the existing character, including events received before the timer retries.
 local existing = ns.Recorder.Char()
 local before = existing.seq
-local realRealm = GetRealmName
+local realName = UnitName
 W.timers = {}
-GetRealmName = function() return "  " end
+UnitName = function() return "Baldrake", "  " end
 fire("PLAYER_LOGIN")
 fire("PLAYER_ENTERING_WORLD", true, false)
-fire("CHAT_MSG_SAY", "Waiting for the realm", "Witness")
-check(ns.Recorder.Char() == nil, "recording waits for the realm")
-check(not JourneyMasterDB.characters[existing.name .. "-"], "no blank-realm character created")
-GetRealmName = realRealm
+fire("CHAT_MSG_SAY", "Waiting for the surname", "Witness")
+check(ns.Recorder.Char() == nil, "recording waits for the surname")
+check(not JourneyMasterDB.characters["Baldrake-"], "no blank-surname character created")
+UnitName = realName
 W.RunTimers()
-check(ns.Recorder.Char() == existing, "late realm resumes the original character")
-check(existing.seq > before and last().text == "Waiting for the realm", "startup events replay in sequence")
+check(ns.Recorder.Char() == existing, "late surname resumes the original character")
+check(existing.seq > before and last().text == "Waiting for the surname", "startup events replay in sequence")
 local logins = 0
 for _, e in ipairs(existing.entries) do
     if e.i > before and e.k == "login" then logins = logins + 1 end
 end
-eq(logins, 1, "late realm records world entry once")
-GetRealmName = function() return "" end
-UnitFullName = function() return existing.name, realRealm():gsub("%s", "") end
+eq(logins, 1, "late surname records world entry once")
+UnitName = function() return "Baldrake", "Cavethrone" end
 fire("PLAYER_LOGIN")
-check(ns.Recorder.Char() == existing, "player unit realm resolves the existing character at login")
+check(ns.Recorder.Char() ~= existing and ns.Recorder.Char().key == "Baldrake-Cavethrone", "shared given names have separate records")
+UnitName = realName
 
 if fails > 0 then error(fails .. " add-on checks failed") end
 print("add-on harness: all checks passed")

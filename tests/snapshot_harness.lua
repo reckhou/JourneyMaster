@@ -22,7 +22,7 @@ local function texts(blocks)
 end
 
 eq(ns.journalSnapshot.revision, 7, "revision read")
-local KEY = "Baldrake Cavendell-LivingFlame"
+local KEY = "Baldrake-Cavendell"
 eq(ns.journalSnapshot.characters[KEY].confirmed, 68, "confirmed read")
 
 -- Log in with entries already numbered up to 70: those up to 68 are stored by the app; the newest session stays.

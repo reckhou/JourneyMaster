@@ -84,7 +84,7 @@ function Signal.Send(kind, arg, onDone)
     end
     count = count + 1
     local id = loginStamp .. "-" .. count
-    writing = { lines = Core.SignalLines(id, kind, arg, Core.CharKey(c.name, c.realm)), nextLine = 1, id = id }
+    writing = { lines = Core.SignalLines(id, kind, arg, c.key), nextLine = 1, id = id }
     quietSystemChat()
     local function step()
         for _ = 1, PER_TICK do
@@ -155,7 +155,7 @@ end
 function Signal.SendSummaryRequests()
     local c = rec().Char()
     if not c then return end
-    local key = Core.CharKey(c.name, c.realm)
+    local key = c.key
     local list = {}
     for s, r in pairs(c.summaryRequests or {}) do
         if not r.sent and not ns.Journal.IsSummarised(key, s) then list[#list + 1] = s end

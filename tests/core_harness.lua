@@ -65,8 +65,8 @@ eq(s2, "hidden", "secret recap")
 
 -- Entries and sessions -------------------------------------------------------------------------------------------
 local db = {}
-local c = Core.Char(db, Core.CharKey("Baldrake Cavendell", "Living Flame"))
-eq(Core.CharKey("Baldrake Cavendell", "Living Flame"), "Baldrake Cavendell-LivingFlame", "character key")
+local c = Core.Char(db, Core.CharKey("Baldrake", "Cavendell"))
+eq(Core.CharKey("Baldrake", "Cavendell"), "Baldrake-Cavendell", "character key")
 eq(c.settings.chatSay, true, "default setting")
 local T = 1794520000
 Core.Append(c, { k = "login" }, T)
@@ -86,8 +86,8 @@ eq(c.entries[7].s, 3, "a finished session: the next entry starts a new one")
 eq(c.endSession, nil, "finish used once")
 eq(Core.Chip({ k = "end" }), "zone", "end entries under the zone chip")
 -- Signals to the app.
-local sig = Core.SignalLines("123-1", "OPEN", 4, "Baldrake Cavendell-LivingFlame")
-eq(sig[1], "JMS:123-1:OPEN:4:Baldrake Cavendell-LivingFlame", "signal line")
+local sig = Core.SignalLines("123-1", "OPEN", 4, "Baldrake-Cavendell")
+eq(sig[1], "JMS:123-1:OPEN:4:Baldrake-Cavendell", "signal line")
 eq(#sig[2], Core.PAD_LEN, "padding line length")
 check((#sig - 1) * Core.PAD_LEN >= Core.PAD_BYTES, "padding fills 48 KiB")
 eq(Core.SignalLine("1", "OPEN", 1, "A|B"), "JMS:1:OPEN:1:A_B", "no | in a signal")

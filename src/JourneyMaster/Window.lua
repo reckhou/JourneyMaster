@@ -37,7 +37,7 @@ Window.widgets = { list = list, reader = reader, chips = chips }
 local function rec() return ns.Recorder end
 local function charKey()
     local c = rec().Char()
-    return c and Core.CharKey(c.name, c.realm) or "?"
+    return c and c.key or "?"
 end
 
 -- Sessions ---------------------------------------------------------------------------------------------------------

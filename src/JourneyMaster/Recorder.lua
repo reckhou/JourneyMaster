@@ -191,26 +191,22 @@ end
 
 -- Finds or creates the current character's table and fills in the facts the summary may state.
 function Rec.Start(db)
-    local name = short(call(UnitName, "player"))
-    local realm = text(call(GetRealmName))
-    if not realm then realm = text(call(GetNormalizedRealmName)) end
-    if not name or not realm then
-        local fullName, unitRealm = call(UnitFullName, "player")
-        name, realm = name or short(fullName), realm or text(unitRealm)
-    end
-    if not name or not realm then
+    local given, surname = call(UnitName, "player")
+    given, surname = text(given), text(surname)
+    if not given or not surname then
         char = nil
         return
     end
-    char = Core.Char(db, Core.CharKey(name, realm))
-    char.name, char.realm = name, realm
+    local key = Core.CharKey(given, surname)
+    char = Core.Char(db, key)
+    char.key, char.name = key, given .. " " .. surname
     char.class = call(UnitClass, "player") or char.class
     char.race = call(UnitRace, "player") or char.race
     char.sex = call(UnitSex, "player") or char.sex -- 2 male, 3 female: so the summary need not guess a pronoun
     char.faction = call(UnitFactionGroup, "player") or char.faction
     char.level = call(UnitLevel, "player") or char.level
     -- Entries the app has stored, as the snapshot says, can go.
-    local snap = ns.journalSnapshot and ns.journalSnapshot.characters and ns.journalSnapshot.characters[Core.CharKey(name, realm)]
+    local snap = ns.journalSnapshot and ns.journalSnapshot.characters and ns.journalSnapshot.characters[key]
     if snap and tonumber(snap.confirmed) then
         char.confirmed = math.max(char.confirmed or 0, tonumber(snap.confirmed))
         -- Deleted sessions, by the game or by the app, do not take the place of a kept session.
@@ -595,7 +591,7 @@ function Rec.CheckRoster()
     local prefix = (call(IsInRaid) and "raid") or "party"
     for i = 1, (prefix == "raid" and n or math.max(0, n - 1)) do
         local who = short(call(UnitName, prefix .. i))
-        if who and who ~= char.name and who ~= UNKNOWNOBJECT and who ~= "Unknown" then names[who] = true end
+        if who and not call(UnitIsUnit, prefix .. i, "player") and who ~= char.name and who ~= UNKNOWNOBJECT and who ~= "Unknown" then names[who] = true end
     end
     local old = char.roster or {}
     for who in pairs(names) do if not old[who] then Add({ k = "group", act = "join", who = who }) end end

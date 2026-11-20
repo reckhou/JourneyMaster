@@ -57,7 +57,7 @@ function ns.Command(msg)
     local cmd, rest = msg:match("^%s*(%S*)%s*(.-)%s*$")
     cmd = (cmd or ""):lower()
     local c = Rec.Char()
-    if not c then say("waiting for the game to supply your character name and realm.") return end
+    if not c then say("waiting for the game to supply your full character name.") return end
     if cmd == "" then
         ns.Window.Toggle()
     elseif cmd == "log" then
@@ -107,7 +107,7 @@ function ns.OnLogin()
     -- If the app has already summarised the session in progress (the snapshot lists it), whatever comes next must not
     -- join it, or it would be in no summary: the next entry starts a new session.
     -- Likewise for a session deleted. Renames and deletions the app has handled are then dropped from the saved file.
-    local key = Core.CharKey(c.name, c.realm)
+    local key = c.key
     local snapChar = ns.Journal.SnapChar(key)
     if (c.session or 0) > 0 and (ns.Journal.IsSummarised(key, c.session) or ns.Journal.IsDeleted(c, snapChar, c.session)) then
         c.endSession = true
@@ -121,7 +121,7 @@ function ns.OnLogin()
     return c
 end
 
--- The client can announce login before it supplies the realm. Keep the startup events in order until it does.
+-- The client can announce login before it supplies the surname. Keep the startup events in order until it does.
 local pending
 local function tryLogin()
     if not pending or not ns.OnLogin() then return end
