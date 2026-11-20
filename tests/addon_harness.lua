@@ -842,5 +842,30 @@ x, y = ns.Minimap.Offset(45, 70, true)
 check(math.abs(x - 75) < 0.01 and math.abs(y - 75) < 0.01, "button on a square minimap's corner")
 eq(math.floor(ns.Minimap.Angle(0, 10) + 0.5), 90, "angle")
 
+-- A late realm must resume the existing character, including events received before the timer retries.
+local existing = ns.Recorder.Char()
+local before = existing.seq
+local realRealm = GetRealmName
+W.timers = {}
+GetRealmName = function() return "  " end
+fire("PLAYER_LOGIN")
+fire("PLAYER_ENTERING_WORLD", true, false)
+fire("CHAT_MSG_SAY", "Waiting for the realm", "Witness")
+check(ns.Recorder.Char() == nil, "recording waits for the realm")
+check(not JourneyMasterDB.characters[existing.name .. "-"], "no blank-realm character created")
+GetRealmName = realRealm
+W.RunTimers()
+check(ns.Recorder.Char() == existing, "late realm resumes the original character")
+check(existing.seq > before and last().text == "Waiting for the realm", "startup events replay in sequence")
+local logins = 0
+for _, e in ipairs(existing.entries) do
+    if e.i > before and e.k == "login" then logins = logins + 1 end
+end
+eq(logins, 1, "late realm records world entry once")
+GetRealmName = function() return "" end
+UnitFullName = function() return existing.name, realRealm():gsub("%s", "") end
+fire("PLAYER_LOGIN")
+check(ns.Recorder.Char() == existing, "player unit realm resolves the existing character at login")
+
 if fails > 0 then error(fails .. " add-on checks failed") end
 print("add-on harness: all checks passed")

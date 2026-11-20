@@ -57,6 +57,7 @@ function ns.Command(msg)
     local cmd, rest = msg:match("^%s*(%S*)%s*(.-)%s*$")
     cmd = (cmd or ""):lower()
     local c = Rec.Char()
+    if not c then say("waiting for the game to supply your character name and realm.") return end
     if cmd == "" then
         ns.Window.Toggle()
     elseif cmd == "log" then
@@ -102,23 +103,41 @@ SlashCmdList.JOURNEYMASTER = function(msg) ns.Command(msg) end
 function ns.OnLogin()
     JourneyMasterDB = JourneyMasterDB or {}
     local c = Rec.Start(JourneyMasterDB)
+    if not c then return end
     -- If the app has already summarised the session in progress (the snapshot lists it), whatever comes next must not
     -- join it, or it would be in no summary: the next entry starts a new session.
     -- Likewise for a session deleted. Renames and deletions the app has handled are then dropped from the saved file.
-    if c then
-        local key = Core.CharKey(c.name, c.realm)
-        local snapChar = ns.Journal.SnapChar(key)
-        if (c.session or 0) > 0 and (ns.Journal.IsSummarised(key, c.session) or ns.Journal.IsDeleted(c, snapChar, c.session)) then
-            c.endSession = true
-        end
-        Core.PruneChanges(c, snapChar, time())
-        -- Summaries asked for with the Summarise button: the reload has written the record, so the app is told now, after a
-        -- few seconds for the game to settle.
-        if C_Timer and C_Timer.After then C_Timer.After(8, Rec.Guard("the summary requests", ns.Signal.SendSummaryRequests))
-        else Rec.Try("the summary requests", ns.Signal.SendSummaryRequests) end
+    local key = Core.CharKey(c.name, c.realm)
+    local snapChar = ns.Journal.SnapChar(key)
+    if (c.session or 0) > 0 and (ns.Journal.IsSummarised(key, c.session) or ns.Journal.IsDeleted(c, snapChar, c.session)) then
+        c.endSession = true
     end
+    Core.PruneChanges(c, snapChar, time())
+    -- The reload wrote the requested summaries' records. Give the game a few seconds before signalling the app.
+    if C_Timer and C_Timer.After then C_Timer.After(8, Rec.Guard("the summary requests", ns.Signal.SendSummaryRequests))
+    else Rec.Try("the summary requests", ns.Signal.SendSummaryRequests) end
     ns.Minimap.Create()
     if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(300, Rec.Guard("the reload prompt", maybeOfferReload)) end
+    return c
+end
+
+-- The client can announce login before it supplies the realm. Keep the startup events in order until it does.
+local pending
+local function tryLogin()
+    if not pending or not ns.OnLogin() then return end
+    local events = pending
+    pending = nil
+    for _, e in ipairs(events) do
+        Rec.Try(e.event, Rec.OnEvent, e.event, unpack(e, 1, e.n))
+    end
+end
+
+local function retryLogin(events)
+    if pending ~= events then return end
+    tryLogin()
+    if pending and C_Timer and C_Timer.After then
+        C_Timer.After(1, Rec.Guard("login", function() retryLogin(events) end))
+    end
 end
 
 local frame = CreateFrame and CreateFrame("Frame")
@@ -131,8 +150,20 @@ if frame then
     end
     frame:SetScript("OnEvent", function(_, event, ...)
         if event == "PLAYER_LOGIN" then
-            Rec.Try("login", ns.OnLogin)
+            pending = {}
+            Rec.Try("login", retryLogin, pending)
             return
+        end
+        if pending then
+            if event == "PLAYER_ENTERING_WORLD" or not (C_Timer and C_Timer.After) then Rec.Try("login", tryLogin) end
+            if pending then
+                if #pending < 512 then
+                    pending[#pending + 1] = { event = event, n = select("#", ...), ... }
+                else
+                    Rec.Error("login", "the character identity is still unavailable and the startup event buffer is full")
+                end
+                return
+            end
         end
         Rec.Try(event, Rec.OnEvent, event, ...)
     end)

@@ -191,8 +191,17 @@ end
 
 -- Finds or creates the current character's table and fills in the facts the summary may state.
 function Rec.Start(db)
-    local name = short(call(UnitName, "player")) or "Unknown"
-    local realm = call(GetRealmName) or "Realm"
+    local name = short(call(UnitName, "player"))
+    local realm = text(call(GetRealmName))
+    if not realm then realm = text(call(GetNormalizedRealmName)) end
+    if not name or not realm then
+        local fullName, unitRealm = call(UnitFullName, "player")
+        name, realm = name or short(fullName), realm or text(unitRealm)
+    end
+    if not name or not realm then
+        char = nil
+        return
+    end
     char = Core.Char(db, Core.CharKey(name, realm))
     char.name, char.realm = name, realm
     char.class = call(UnitClass, "player") or char.class
